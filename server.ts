@@ -1,3 +1,4 @@
+import { controlPlaneRouter } from "./src/control-plane/api.ts";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -8,6 +9,10 @@ import { startRuntime } from "./src/runtime/gameLoop.ts";
 import { WebSocketTransportProvider } from "./src/transport/WebSocketTransport.ts";
 import { WebRTCTransportProvider } from "./src/transport/WebRTCTransport.ts";
 import { TransportChannel } from "./src/transport/TransportContract.ts";
+import { fetchMcpTools, callMcpTool } from "./src/chat/mcpClient.ts";
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 class CompositeTransportProvider {
   private connectionHandlers: ((channel: TransportChannel) => void)[] = [];
@@ -60,10 +65,20 @@ async function startServer() {
 
   // API routes FIRST
   app.use(express.json());
+  app.use("/api/control-plane", controlPlaneRouter);
 
   // Setup CORS for integrations
   app.use(cors({
-    origin: ['https://quake.platphormnews.com', 'https://frwf.platphormnews.com'],
+    origin: [
+      'https://quake.platphormnews.com', 
+      'https://frwf.platphormnews.com',
+      'https://trace.platphormnews.com',
+      'https://mcp.platphormews.com',
+      'https://mcp.platphormnews.com',
+      'https://platphormnews.com',
+      'https://games.platphormnews.com',
+      'https://paperboy.platphormnews.com'
+    ],
     credentials: true,
   }));
 
@@ -82,6 +97,61 @@ async function startServer() {
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.post("/api/chat", async (req, res) => {
+    try {
+      const { prompt, history } = req.body;
+      const mcpTools = await fetchMcpTools();
+      
+      const functionDeclarations = mcpTools.map((t: any) => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.inputSchema
+      }));
+
+      // Initialize Gemini Chat session
+      const chat = ai.chats.create({
+        model: 'gemini-3.1-pro-preview',
+        config: {
+          thinkingConfig: { thinkingLevel: 'HIGH' } as any, // Add thinking mode as required
+          tools: [{ functionDeclarations }],
+        },
+        history: history || [],
+      });
+
+      let response = await chat.sendMessage({ message: prompt });
+      
+      while (response.functionCalls && response.functionCalls.length > 0) {
+        const functionResponses = [];
+        for (const call of response.functionCalls) {
+          try {
+            const result = await callMcpTool(call.name, call.args);
+            functionResponses.push({
+              functionResponse: {
+                id: call.id,
+                name: call.name,
+                response: { result }
+              }
+            });
+          } catch (e: any) {
+            functionResponses.push({
+              functionResponse: {
+                id: call.id,
+                name: call.name,
+                response: { error: e.message }
+              }
+            });
+          }
+        }
+        response = await chat.sendMessage(functionResponses);
+      }
+
+      res.json({ response: response.text });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // Vite middleware for development

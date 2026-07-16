@@ -32,8 +32,11 @@ async function runTest() {
   await Promise.all([awaitConnection(client1), awaitConnection(client2)]);
   console.log("Both clients connected.");
 
-  client1.send(encodeMessage({ type: MessageType.ClientHello, clientId: "test_1", version: "1.0.0" }));
-  client2.send(encodeMessage({ type: MessageType.ClientHello, clientId: "test_2", version: "1.0.0" }));
+  const c1ClientId = "test_if_1_" + Date.now();
+  const c2ClientId = "test_if_2_" + Date.now();
+
+  client1.send(encodeMessage({ type: MessageType.ClientHello, clientId: c1ClientId, version: "1.0.0" }));
+  client2.send(encodeMessage({ type: MessageType.ClientHello, clientId: c2ClientId, version: "1.0.0" }));
 
   // Wait for initial sync
   await new Promise(resolve => setTimeout(resolve, 200));

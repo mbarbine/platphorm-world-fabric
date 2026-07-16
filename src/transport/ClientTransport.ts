@@ -96,7 +96,7 @@ export class WebRTCClientTransport implements ClientTransport {
       this.signalingWs.onopen = async () => {
         try {
           this.peerConn = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+            iceServers: [] // Rely on host candidates for local dev / testing
           });
           
           this.dataChannel = this.peerConn.createDataChannel("game");
@@ -115,30 +115,36 @@ export class WebRTCClientTransport implements ClientTransport {
           this.peerConn.onicecandidate = (event) => {
             if (event.candidate && this.signalingWs && this.signalingWs.readyState === WebSocket.OPEN) {
               this.signalingWs.send(JSON.stringify({
-                type: 'webrtc_candidate',
-                candidate: event.candidate.candidate,
-                mid: event.candidate.sdpMid
+                type: 'candidate',
+                candidate: event.candidate.toJSON()
               }));
             }
           };
           
+          let hasRemoteDescription = false;
+          const pendingCandidates: any[] = [];
           this.signalingWs!.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
-            if (msg.type === 'webrtc_answer' && this.peerConn) {
-              await this.peerConn.setRemoteDescription({ type: msg.sdpType, sdp: msg.sdp });
-            } else if (msg.type === 'webrtc_candidate' && this.peerConn) {
-              await this.peerConn.addIceCandidate({ candidate: msg.candidate, sdpMid: msg.mid });
+            if (msg.type === 'answer' && this.peerConn) {
+              await this.peerConn.setRemoteDescription(msg);
+              hasRemoteDescription = true;
+              for (const candidate of pendingCandidates) {
+                await this.peerConn.addIceCandidate(candidate).catch(e => console.warn("Ice candidate error:", e));
+              }
+              pendingCandidates.length = 0;
+            } else if (msg.type === 'candidate' && this.peerConn) {
+              if (hasRemoteDescription) {
+                await this.peerConn.addIceCandidate(msg.candidate).catch(e => console.warn("Ice candidate error:", e));
+              } else {
+                pendingCandidates.push(msg.candidate);
+              }
             }
           };
 
           const offer = await this.peerConn.createOffer();
           await this.peerConn.setLocalDescription(offer);
           
-          this.signalingWs!.send(JSON.stringify({
-            type: 'webrtc_offer',
-            sdp: offer.sdp,
-            sdpType: offer.type
-          }));
+          this.signalingWs!.send(JSON.stringify(offer));
         } catch (e) {
           fail(e);
         }
@@ -183,7 +189,8 @@ export class SmartClientTransport implements ClientTransport {
   constructor(private host: string) {}
 
   async start(): Promise<void> {
-    const rtc = new WebRTCClientTransport(`${this.host}/webrtc-signaling`);
+    const wsUrl = this.host.replace(/^http/, 'ws');
+    const rtc = new WebRTCClientTransport(`${wsUrl}/webrtc-signaling`);
     try {
       // Try WebRTC first
       await Promise.race([
@@ -195,7 +202,7 @@ export class SmartClientTransport implements ClientTransport {
     } catch (e) {
       console.warn("WebRTC failed, falling back to WebSocket", e);
       rtc.close();
-      const ws = new WebSocketClientTransport(`${this.host}/ws`);
+      const ws = new WebSocketClientTransport(`${wsUrl}/ws`);
       await ws.start();
       this.activeTransport = ws;
       console.log("Connected via WebSocket Fallback");

@@ -9,6 +9,7 @@ export enum MessageType {
   EntityDelta = 8,
   Ping = 9,
   Pong = 10,
+  SnapshotAck = 11,
 }
 
 export interface ClientHello {
@@ -41,6 +42,24 @@ export interface Snapshot {
   entities: EntityState[];
 }
 
+export interface EntityDeltaState {
+  id: string;
+  x?: number;
+  y?: number;
+}
+
+export interface EntityDeltaMessage {
+  type: MessageType.EntityDelta;
+  serverTick: number;
+  baselineTick: number;
+  updates: EntityDeltaState[];
+}
+
+export interface SnapshotAck {
+  type: MessageType.SnapshotAck;
+  serverTick: number;
+}
+
 export interface Ping {
   type: MessageType.Ping;
   clientTime: number;
@@ -57,5 +76,8 @@ export type AnyMessage =
   | ServerHello 
   | InputFrame 
   | Snapshot
+  | EntityDeltaMessage
+  | SnapshotAck
   | Ping
   | Pong;
+
