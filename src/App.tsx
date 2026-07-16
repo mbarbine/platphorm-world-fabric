@@ -12,7 +12,7 @@ import { LineChart, Line, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } f
 function RssFeedWidget() {
   const [items, setItems] = useState<any[]>([]);
   useEffect(() => {
-    fetch('https://quake.platphormnews.com/rss.xml')
+    fetch('/api/rss')
       .then(r => r.text())
       .then(str => {
         const parser = new DOMParser();

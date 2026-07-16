@@ -99,6 +99,21 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.get("/api/rss", async (req, res) => {
+    try {
+      const response = await fetch('https://quake.platphormnews.com/rss.xml');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch RSS: ${response.status}`);
+      }
+      const data = await response.text();
+      res.set('Content-Type', 'text/xml');
+      res.send(data);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "RSS fetch error" });
+    }
+  });
+
   app.post("/api/chat", async (req, res) => {
     try {
       const { prompt, history } = req.body;
