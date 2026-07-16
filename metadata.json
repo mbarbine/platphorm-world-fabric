@@ -1,0 +1,6 @@
+{
+  "name": "Platphorm Realtime World Fabric",
+  "description": "Platform supporting infrastructure for real-time multiplayer synchronization and orchestration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

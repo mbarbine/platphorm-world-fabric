@@ -1,0 +1,33 @@
+REQ-001:
+  description: "Two-client authoritative vertical slice"
+  criticality: launch_blocker
+  owner: "Agent"
+  implementation: ["src/runtime/gameLoop.ts", "src/protocol/messages.ts"]
+  tests: ["tests/integration/authoritative-slice.test.ts"]
+  metrics: ["Ping", "TickDuration"]
+  dashboards: ["App.tsx UI"]
+  status: passing
+
+REQ-002:
+  description: "Network impairment handling (Jitter/Loss)"
+  criticality: launch_blocker
+  owner: "Agent"
+  implementation: ["src/transport/ClientTransport.ts"]
+  tests: ["tests/integration/network-impairment.test.ts"]
+  status: passing
+
+REQ-003:
+  description: "Binary Protocol Migration"
+  criticality: launch_blocker
+  owner: "Agent"
+  implementation: ["src/protocol/binaryCodec.ts", "src/runtime/gameLoop.ts", "src/transport/ClientTransport.ts", "src/App.tsx"]
+  tests: ["tests/integration/authoritative-slice.test.ts", "tests/integration/network-impairment.test.ts"]
+  status: passing
+
+REQ-004:
+  description: "Interest Management (Distance filtering)"
+  criticality: launch_blocker
+  owner: "Agent"
+  implementation: ["src/runtime/gameLoop.ts"]
+  tests: ["tests/integration/interest-filtering.test.ts"]
+  status: passing

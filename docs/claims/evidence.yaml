@@ -1,0 +1,20 @@
+claim_001:
+  wording: "Two independent browser clients connect to a real authoritative runtime, submit sequenced inputs, and observe interest-filtered state."
+  status: verified
+  test_id: "authoritative-slice.test.ts"
+  measured_at: "2026-07-16"
+claim_002:
+  wording: "Network impairment handling (20% loss, 20-50ms jitter) survives and recovers state."
+  status: verified
+  test_id: "network-impairment.test.ts"
+  measured_at: "2026-07-16"
+claim_003:
+  wording: "Binary protocol implementation for hot-path replication, completely bypassing JSON."
+  status: verified
+  test_id: "authoritative-slice.test.ts"
+  measured_at: "2026-07-16"
+claim_004:
+  wording: "Spatial interest filtering drops state for entities beyond 1000 units."
+  status: verified
+  test_id: "interest-filtering.test.ts"
+  measured_at: "2026-07-16"

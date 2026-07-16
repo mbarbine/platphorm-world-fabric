@@ -1,0 +1,16 @@
+risks:
+  - id: RISK-001
+    description: "WebRTC traversal failures in restricted networks"
+    impact: high
+    probability: medium
+    mitigation: "Reliable logical WebSocket fallback sharing identical message contracts."
+  - id: RISK-002
+    description: "Single-threaded Node.js runtime bottleneck for simulation"
+    impact: high
+    probability: high
+    mitigation: "Delegate distinct sessions to worker threads or independent horizontal scaling."
+  - id: RISK-003
+    description: "JSON protocol overhead limits entity count"
+    impact: medium
+    probability: high
+    mitigation: "Strict requirement to migrate hot-path gameplay state to sequence-aware binary messages (Protobuf/custom binary)."
