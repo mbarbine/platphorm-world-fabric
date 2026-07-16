@@ -422,14 +422,21 @@ export default function App() {
   // Handle inputs
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+      keysPressed.current[e.key.toLowerCase()] = true;
       keysPressed.current[e.key] = true;
     };
     const handleKeyUp = (e: KeyboardEvent) => {
+      keysPressed.current[e.key.toLowerCase()] = false;
       keysPressed.current[e.key] = false;
+    };
+    const handleBlur = () => {
+      keysPressed.current = {};
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
 
     const inputInterval = setInterval(() => {
       if (!transportRef.current || transportRef.current.getStatus() === 'Disconnected') return;
@@ -454,6 +461,7 @@ export default function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
       clearInterval(inputInterval);
     };
   }, []);

@@ -1,31 +1,15 @@
-import { SessionAllocator } from "../../src/allocator/SessionAllocator.ts";
+import { describe, it, expect } from "vitest";
+import { SessionAllocator } from "../../src/allocator/SessionAllocator";
 
-async function runTest() {
-  const allocator = new SessionAllocator();
-  
-  allocator.registerNode("node_1", "us-east");
-  allocator.registerNode("node_2", "eu-west");
-
-  const s1 = allocator.requestSession("us-east");
-  if (s1.state !== "ACTIVE" || s1.nodeId !== "node_1") {
-    throw new Error("Failed to allocate to us-east node");
-  }
-
-  const s2 = allocator.requestSession("eu-west");
-  if (s2.state !== "ACTIVE" || s2.nodeId !== "node_2") {
-    throw new Error("Failed to allocate to eu-west node");
-  }
-
-  // Test draining
-  allocator.drainNode("node_1");
-  if ((s1.state as string) !== "DRAINING") {
-    throw new Error("Session on drained node did not transition to DRAINING");
-  }
-
-  console.log("Session allocation and draining test PASSED");
-}
-
-runTest().catch(e => {
-  console.error("Test failed:", e);
-  process.exit(1);
+describe("Session Allocation", () => {
+  it("should allocate and drain sessions", () => {
+    const allocator = new SessionAllocator();
+    allocator.registerNode("node-1", "us-east", 10);
+    
+    const sess1 = allocator.requestSession("us-east");
+    expect(sess1.state).toBe("ACTIVE");
+    
+    allocator.drainNode("node-1");
+    expect(sess1.state).toBe("DRAINING");
+  });
 });

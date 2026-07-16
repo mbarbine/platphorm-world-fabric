@@ -1,20 +1,17 @@
-import { test } from "node:test";
-import assert from "node:assert";
-import { SmartClientTransport } from "../../src/transport/ClientTransport.ts";
+import { describe, it, expect } from "vitest";
+import { SmartClientTransport } from "../../src/transport/ClientTransport";
 import { RTCPeerConnection } from "werift";
+import { WebSocket } from "ws";
 
 (global as any).RTCPeerConnection = RTCPeerConnection;
+(global as any).WebSocket = WebSocket;
 
-test("WebRTC connection and fallback", async () => {
-  console.log("Starting WebRTC Test...");
-  const transport = new SmartClientTransport("http://localhost:3000");
-  
-  await transport.start();
-  const status = transport.getStatus();
-  console.log("Transport connected with status:", status);
-  
-  // Either WebRTC succeeds (if network allows) or it falls back to WebSocket
-  assert.ok(status === 'WebRTC' || status === 'WebSocket', 'Should have connected via WebRTC or fallback');
-  
-  transport.close();
+describe("WebRTC", () => {
+  it("should connect via fallback when werift is limited", async () => {
+    const transport = new SmartClientTransport("http://localhost:3000");
+    await transport.start();
+    const status = transport.getStatus();
+    expect(["WebRTC", "WebSocket"]).toContain(status);
+    transport.close();
+  });
 });

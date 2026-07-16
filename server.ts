@@ -144,7 +144,7 @@ async function startServer() {
             });
           }
         }
-        response = await chat.sendMessage(functionResponses);
+        response = await chat.sendMessage({ message: functionResponses });
       }
 
       res.json({ response: response.text });

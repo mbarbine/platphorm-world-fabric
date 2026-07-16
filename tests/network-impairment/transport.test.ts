@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { WebSocket } from 'ws';
 import { SmartClientTransport } from '../../src/transport/ClientTransport';
 import { encodeMessage, decodeMessage } from '../../src/protocol/binaryCodec';
-import { MessageType, AnyMessage, SnapshotMessage } from '../../src/protocol/messages';
+import { MessageType, AnyMessage, Snapshot } from '../../src/protocol/messages';
 
 // Polyfill WebSocket for Node.js test environment
 (global as any).WebSocket = WebSocket;
@@ -87,17 +87,17 @@ describe('SmartClientTransport Network Impairment', () => {
 
     await impaired.start();
 
-    // Send ClientHello (bypass impairment for reliable control message to ensure test starts)
-    const clientHello = encodeMessage({ 
-      type: MessageType.ClientHello, 
-      clientId: "test_impaired_client", 
-      version: "1.0.0" 
-    });
-    // Send reliably for setup
-    (impaired.transport as any).activeTransport.send(clientHello);
-
-    // Wait for connection to establish and receive ServerHello
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Send ClientHello reliably for setup
+    let retries = 0;
+    while (!clientId && retries < 10) {
+      impaired.transport.send(encodeMessage({ 
+        type: MessageType.ClientHello, 
+        clientId: "test_impaired_client", 
+        version: "1.0.0" 
+      }));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      retries++;
+    }
     
     expect(clientId).toBeTruthy(); // Should have received ServerHello
 

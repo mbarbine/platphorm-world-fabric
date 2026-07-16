@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { encodeMessage, decodeMessage } from '../../src/protocol/binaryCodec';
-import { MessageType, InputFrameMessage, PingMessage, PongMessage, SnapshotAckMessage, SnapshotMessage, EntityDeltaMessage } from '../../src/protocol/messages';
+import { MessageType, InputFrame, Ping, Pong, SnapshotAck, Snapshot, EntityDeltaMessage } from '../../src/protocol/messages';
 
 describe('binaryCodec', () => {
   it('should encode and decode InputFrame', () => {
-    const original: InputFrameMessage = {
+    const original: InputFrame = {
       type: MessageType.InputFrame,
       sequence: 42,
       inputX: -1.5,
@@ -16,7 +16,7 @@ describe('binaryCodec', () => {
   });
 
   it('should encode and decode Ping', () => {
-    const original: PingMessage = {
+    const original: Ping = {
       type: MessageType.Ping,
       clientTime: 12345.6789
     };
@@ -26,7 +26,7 @@ describe('binaryCodec', () => {
   });
 
   it('should encode and decode Pong', () => {
-    const original: PongMessage = {
+    const original: Pong = {
       type: MessageType.Pong,
       clientTime: 12345.6789,
       serverTime: 98765.4321
@@ -37,7 +37,7 @@ describe('binaryCodec', () => {
   });
 
   it('should encode and decode SnapshotAck', () => {
-    const original: SnapshotAckMessage = {
+    const original: SnapshotAck = {
       type: MessageType.SnapshotAck,
       serverTick: 1000
     };
@@ -47,7 +47,7 @@ describe('binaryCodec', () => {
   });
 
   it('should encode and decode Snapshot', () => {
-    const original: SnapshotMessage = {
+    const original: Snapshot = {
       type: MessageType.Snapshot,
       serverTick: 1001,
       entities: [

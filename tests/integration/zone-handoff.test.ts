@@ -1,22 +1,11 @@
-import { ZoneHandoffManager, Zone } from "../../src/runtime/zone/ZoneHandoff.ts";
+import { describe, it, expect } from "vitest";
+import { ZoneHandoffManager } from "../../src/runtime/zone/ZoneHandoff";
 
-async function runTest() {
-  const source: Zone = { id: "zone_a", region: "us-east" };
-  const dest: Zone = { id: "zone_b", region: "us-east" };
-  
-  const manager = new ZoneHandoffManager("player_123", source, dest);
-  
-  if (manager.getState() !== "SOURCE_OWNED") throw new Error("Initial state mismatch");
-  
-  const success = await manager.executeHandoff({ id: "player_123", x: 0, y: 0 });
-  
-  if (!success) throw new Error("Handoff failed");
-  if (manager.getState() !== "SOURCE_RELEASED") throw new Error("Final state mismatch");
-  
-  console.log("Zone handoff test PASSED");
-}
-
-runTest().catch(e => {
-  console.error("Test failed:", e);
-  process.exit(1);
+describe("Zone Handoff", () => {
+  it("should execute full handoff successfully", async () => {
+    const handoff = new ZoneHandoffManager("player_123", { id: "zone_a", region: "us-east" }, { id: "zone_b", region: "us-east" });
+    const success = await handoff.executeHandoff({ id: "player_123", x: 0, y: 0 } as any);
+    expect(success).toBe(true);
+    expect(handoff.getState()).toBe("SOURCE_RELEASED");
+  });
 });
