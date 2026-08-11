@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "platphorm-world-fabric",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -40,5 +40,7 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
     "vitest": "^4.1.10"
-  }
+  },
+  "author": "Michael Barbine <michael@platphormnews.com>",
+  "homepage": "https://platphormnews.com"
 }
