@@ -5,7 +5,6 @@ on:
     types:
       - opened
       - reopened
-      - synchronize
       - ready_for_review
 
 permissions:
@@ -13,17 +12,48 @@ permissions:
   pull-requests: write
 
 jobs:
-  auto-approve-and-merge:
+  auto-approve-and-auto-merge:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     steps:
       - name: Auto approve PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr review "${{ github.event.pull_request.number }}"             --repo "${{ github.repository }}"             --approve             --body "Auto-approved by platform workflow."
-      - name: Enable auto-merge
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr merge "${{ github.event.pull_request.number }}"             --repo "${{ github.repository }}"             --auto             --merge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = pr.number;
+
+            await github.rest.pulls.createReview({
+              owner,
+              repo,
+              pull_number,
+              event: 'APPROVE',
+              body: 'Auto-approved by platform automation.'
+            });
+
+            const idQuery = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    id
+                  }
+                }
+              }
+            `, {
+              owner,
+              repo,
+              number: pull_number
+            });
+
+            const prId = idQuery.repository.pullRequest.id;
+            await github.graphql(`
+              mutation($prId: ID!) {
+                enablePullRequestAutoMerge(input: { pullRequestId: $prId, mergeMethod: MERGE }) {
+                  clientMutationId
+                }
+              }
+            `, {
+              prId
+            });
