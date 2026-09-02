@@ -1,0 +1,3 @@
+## 2025-09-02 - Map insertion order vs Math.min(...map.keys()) on sequential tick history
+**Learning:** In the authoritative game loop, `stateHistory` keys (`serverTick`) are inserted sequentially. Spreading `...stateHistory.keys()` into `Math.min()` allocates a 90+ element array and runs linear searches 30 times per second. Because JS `Map` keys preserve insertion order, `map.keys().next().value` yields the minimum/oldest tick in O(1) with zero allocations.
+**Action:** Always prefer `map.keys().next().value` over `Math.min(...map.keys())` when map keys are inserted in strictly ascending order.
