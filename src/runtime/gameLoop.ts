@@ -18,6 +18,9 @@ const stateHistory = new Map<number, Map<string, EntityState>>();
 
 let serverTick = 0;
 const DISCONNECT_TIMEOUT_MS = 60000;
+// Bolt Optimization: Pre-calculate squared interest radius constant to avoid multiplication on every entity pair per tick
+const INTEREST_RADIUS = 500;
+const INTEREST_RADIUS_SQ = INTEREST_RADIUS * INTEREST_RADIUS;
 
 export function startRuntime(provider: TransportProvider) {
   provider.onConnection((channel) => {
@@ -112,13 +115,13 @@ function tick() {
   }
   stateHistory.set(serverTick, currentTickMap);
 
+  // Bolt Optimization: Delete exact old tick (serverTick - 90) rather than scanning all keys with Math.min(...stateHistory.keys())
+  // This eliminates allocation of intermediate array from keys spread and avoids O(N) map traversal on every tick.
   if (stateHistory.size > 90) { // Keep last 3 seconds
-    const minTick = Math.min(...stateHistory.keys());
-    stateHistory.delete(minTick);
+    stateHistory.delete(serverTick - 90);
   }
 
   const allEntities = Array.from(entities.values());
-  const INTEREST_RADIUS = 500;
   
   // Replicate to all clients with interest filtering
   for (const conn of connections.values()) {
@@ -130,7 +133,7 @@ function tick() {
         const dx = e.x - playerEntity.x;
         const dy = e.y - playerEntity.y;
         const distSq = dx*dx + dy*dy;
-        return distSq <= INTEREST_RADIUS * INTEREST_RADIUS;
+        return distSq <= INTEREST_RADIUS_SQ;
       });
     }
 
