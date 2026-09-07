@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { SmartClientTransport } from "../../src/transport/ClientTransport";
 import { WebSocket } from "ws";
+import { RTCPeerConnection } from "werift";
 
+(global as any).RTCPeerConnection = RTCPeerConnection;
 (global as any).WebSocket = WebSocket;
 
 describe("Network Impairment", () => {

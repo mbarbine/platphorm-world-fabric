@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { WebSocket } from 'ws';
+import { RTCPeerConnection } from 'werift';
 import { SmartClientTransport } from '../../src/transport/ClientTransport';
+
+(global as any).RTCPeerConnection = RTCPeerConnection;
 import { encodeMessage, decodeMessage } from '../../src/protocol/binaryCodec';
 import { MessageType, AnyMessage, Snapshot } from '../../src/protocol/messages';
 
