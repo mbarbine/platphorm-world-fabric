@@ -113,8 +113,11 @@ function tick() {
   stateHistory.set(serverTick, currentTickMap);
 
   if (stateHistory.size > 90) { // Keep last 3 seconds
-    const minTick = Math.min(...stateHistory.keys());
-    stateHistory.delete(minTick);
+    // O(1) eviction of oldest tick using Map insertion order rather than O(N) Math.min(...keys) spread array creation
+    const minTick = stateHistory.keys().next().value;
+    if (minTick !== undefined) {
+      stateHistory.delete(minTick);
+    }
   }
 
   const allEntities = Array.from(entities.values());
