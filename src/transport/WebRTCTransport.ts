@@ -12,9 +12,17 @@ class WebRTCChannel implements TransportChannel {
     this.dc.onMessage.subscribe((data: string | Buffer | Uint8Array) => {
       for (const h of this.messageHandlers) h(data);
     });
-    this.dc.onClose.subscribe(() => {
-      for (const h of this.closeHandlers) h();
-    });
+    if (this.dc.stateChanged) {
+      this.dc.stateChanged.subscribe((state: string) => {
+        if (state === "closed") {
+          for (const h of this.closeHandlers) h();
+        }
+      });
+    } else if (this.dc.onClose) {
+      this.dc.onClose.subscribe(() => {
+        for (const h of this.closeHandlers) h();
+      });
+    }
   }
 
   onMessage(handler: (data: string | Buffer | Uint8Array) => void): void {
