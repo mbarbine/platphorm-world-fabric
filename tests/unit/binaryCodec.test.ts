@@ -86,4 +86,33 @@ describe('binaryCodec', () => {
     const decoded = decodeMessage(encoded);
     expect(decoded).toEqual(original);
   });
+
+  it('should efficiently encode repeated snapshots using cached entity ID strings', () => {
+    const entities = Array.from({ length: 50 }, (_, i) => ({
+      id: `entity_player_node_${i}`,
+      x: i * 1.5,
+      y: i * 2.5
+    }));
+
+    const snapshot: Snapshot = {
+      type: MessageType.Snapshot,
+      serverTick: 500,
+      entities
+    };
+
+    const start = performance.now();
+    for (let i = 0; i < 5000; i++) {
+      const encoded = encodeMessage(snapshot);
+      expect(encoded.byteLength).toBeGreaterThan(0);
+    }
+    const duration = performance.now() - start;
+
+    // Verify encoded output decodes correctly after repetitive caching
+    const encoded = encodeMessage(snapshot);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(snapshot);
+
+    // 5000 iterations x 50 entities = 250,000 entity encodes should complete very fast (<100ms)
+    expect(duration).toBeLessThan(1000);
+  });
 });

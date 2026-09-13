@@ -3,6 +3,25 @@ import { AnyMessage, MessageType, EntityState, EntityDeltaState } from './messag
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+// Bounded string encoding cache to avoid re-encoding entity IDs on every game tick
+const encodedIdCache = new Map<string, Uint8Array>();
+const MAX_ID_CACHE_SIZE = 2000;
+
+/**
+ * Encodes string entity IDs to Uint8Array, reusing cached byte arrays to minimize allocations and TextEncoder overhead.
+ */
+function getEncodedId(id: string): Uint8Array {
+  let cached = encodedIdCache.get(id);
+  if (cached === undefined) {
+    cached = textEncoder.encode(id);
+    if (encodedIdCache.size >= MAX_ID_CACHE_SIZE) {
+      encodedIdCache.clear();
+    }
+    encodedIdCache.set(id, cached);
+  }
+  return cached;
+}
+
 export function encodeMessage(msg: AnyMessage): Uint8Array {
   if (msg.type === MessageType.InputFrame) {
     const buf = new Uint8Array(13);
@@ -42,19 +61,22 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   if (msg.type === MessageType.Snapshot) {
     // Variable length
     let size = 1 + 4 + 2; // type + tick + count
-    const encodedIds = msg.entities.map(e => textEncoder.encode(e.id));
-    for (const eid of encodedIds) {
-      size += 2 + eid.length + 4 + 4; // idLength + idBytes + x + y
+    const count = msg.entities.length;
+    const encodedIds = new Array<Uint8Array>(count);
+    for (let i = 0; i < count; i++) {
+      const eid = getEncodedId(msg.entities[i].id);
+      encodedIds[i] = eid;
+      size += 2 + eid.length + 8; // idLength + idBytes + x(4) + y(4)
     }
 
     const buf = new Uint8Array(size);
     const view = new DataView(buf.buffer);
     view.setUint8(0, msg.type);
     view.setUint32(1, msg.serverTick, true);
-    view.setUint16(5, msg.entities.length, true);
+    view.setUint16(5, count, true);
     
     let offset = 7;
-    for (let i = 0; i < msg.entities.length; i++) {
+    for (let i = 0; i < count; i++) {
       const e = msg.entities[i];
       const eid = encodedIds[i];
       view.setUint16(offset, eid.length, true);
@@ -70,10 +92,13 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
 
   if (msg.type === MessageType.EntityDelta) {
     let size = 1 + 4 + 4 + 2; // type + serverTick + baselineTick + count
-    const encodedIds = msg.updates.map(u => textEncoder.encode(u.id));
-    for (let i = 0; i < msg.updates.length; i++) {
+    const count = msg.updates.length;
+    const encodedIds = new Array<Uint8Array>(count);
+    for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
-      size += 2 + encodedIds[i].length + 1; // idLen + idBytes + bitmask
+      const eid = getEncodedId(u.id);
+      encodedIds[i] = eid;
+      size += 2 + eid.length + 1; // idLen + idBytes + bitmask
       if (u.x !== undefined) size += 4;
       if (u.y !== undefined) size += 4;
     }
@@ -83,10 +108,10 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     view.setUint8(0, msg.type);
     view.setUint32(1, msg.serverTick, true);
     view.setUint32(5, msg.baselineTick, true);
-    view.setUint16(9, msg.updates.length, true);
+    view.setUint16(9, count, true);
     
     let offset = 11;
-    for (let i = 0; i < msg.updates.length; i++) {
+    for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
       const eid = encodedIds[i];
       view.setUint16(offset, eid.length, true);
