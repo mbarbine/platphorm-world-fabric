@@ -1,0 +1,3 @@
+## 2025-05-10 - O(1) Map Iteration vs O(N) Array Spread for Pruning Monotonically Keyed Maps
+**Learning:** In JavaScript/TypeScript `Map`, keys preserve insertion order. When maintaining bounded state history where keys are monotonically increasing integers (e.g. server ticks), calling `Math.min(...map.keys())` creates temporary array heap allocations and scans all N items on every tick ($O(N)$). Using `map.keys().next().value` retrieves the oldest key in $O(1)$ time with 0 allocations.
+**Action:** Use `map.keys().next().value` for eviction on insertion-ordered Map structures instead of `Math.min(...map.keys())`.

@@ -112,13 +112,21 @@ function tick() {
   }
   stateHistory.set(serverTick, currentTickMap);
 
-  if (stateHistory.size > 90) { // Keep last 3 seconds
-    const minTick = Math.min(...stateHistory.keys());
-    stateHistory.delete(minTick);
+  // Keep last 3 seconds (90 ticks).
+  // Optimization: Map keys maintain insertion order (monotonically increasing ticks).
+  // Using .keys().next().value retrieves the oldest tick in O(1) time with 0 array allocations,
+  // avoiding O(N) array spread and Math.min iterations every tick.
+  if (stateHistory.size > 90) {
+    const oldestTick = stateHistory.keys().next().value;
+    if (oldestTick !== undefined) {
+      stateHistory.delete(oldestTick);
+    }
   }
 
   const allEntities = Array.from(entities.values());
   const INTEREST_RADIUS = 500;
+  // Pre-calculate squared interest radius to avoid redundant multiplication inside the filtering loop.
+  const INTEREST_RADIUS_SQ = INTEREST_RADIUS * INTEREST_RADIUS;
   
   // Replicate to all clients with interest filtering
   for (const conn of connections.values()) {
@@ -130,7 +138,7 @@ function tick() {
         const dx = e.x - playerEntity.x;
         const dy = e.y - playerEntity.y;
         const distSq = dx*dx + dy*dy;
-        return distSq <= INTEREST_RADIUS * INTEREST_RADIUS;
+        return distSq <= INTEREST_RADIUS_SQ;
       });
     }
 
