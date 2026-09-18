@@ -56,14 +56,11 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   }
 
   if (msg.type === MessageType.Snapshot) {
-    // Variable length
+    const count = msg.entities.length;
     let size = 1 + 4 + 2; // type + tick + count
-    // Bolt: Pre-allocate array to avoid intermediate closure and array allocations from Array.prototype.map in tick loop
-    const encodedIds: Uint8Array[] = new Array(msg.entities.length);
-    for (let i = 0; i < msg.entities.length; i++) {
-      const eid = textEncoder.encode(msg.entities[i].id);
-      encodedIds[i] = eid;
-      size += 2 + eid.length + 4 + 4; // idLength + idBytes + x + y
+    // Bolt: Use fast UTF-8 byte length calculation to avoid intermediate Uint8Array allocations in tick loop
+    for (let i = 0; i < count; i++) {
+      size += 2 + getStringByteLength(msg.entities[i].id) + 4 + 4; // idLength + idBytes + x + y
     }
 
     const buf = new Uint8Array(size);
@@ -76,10 +73,9 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     for (let i = 0; i < count; i++) {
       const e = msg.entities[i];
       const idLen = getStringByteLength(e.id);
-      // DataView set for id length header
-      const res = textEncoder.encodeInto(e.id, buf.subarray(offset + 2, offset + 2 + idLen));
-      view.setUint16(offset, res.written, true);
-      offset += 2 + res.written;
+      view.setUint16(offset, idLen, true);
+      textEncoder.encodeInto(e.id, buf.subarray(offset + 2, offset + 2 + idLen));
+      offset += 2 + idLen;
       view.setFloat32(offset, e.x, true);
       view.setFloat32(offset + 4, e.y, true);
       offset += 8;
@@ -88,14 +84,12 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   }
 
   if (msg.type === MessageType.EntityDelta) {
+    const count = msg.updates.length;
     let size = 1 + 4 + 4 + 2; // type + serverTick + baselineTick + count
-    // Bolt: Pre-allocate array to avoid intermediate closure and array allocations from Array.prototype.map in tick loop
-    const encodedIds: Uint8Array[] = new Array(msg.updates.length);
-    for (let i = 0; i < msg.updates.length; i++) {
+    // Bolt: Use fast UTF-8 byte length calculation to avoid intermediate Uint8Array allocations in tick loop
+    for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
-      const eid = textEncoder.encode(u.id);
-      encodedIds[i] = eid;
-      size += 2 + eid.length + 1; // idLen + idBytes + bitmask
+      size += 2 + getStringByteLength(u.id) + 1; // idLen + idBytes + bitmask
       if (u.x !== undefined) size += 4;
       if (u.y !== undefined) size += 4;
     }
@@ -111,9 +105,9 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
       const idLen = getStringByteLength(u.id);
-      const res = textEncoder.encodeInto(u.id, buf.subarray(offset + 2, offset + 2 + idLen));
-      view.setUint16(offset, res.written, true);
-      offset += 2 + res.written;
+      view.setUint16(offset, idLen, true);
+      textEncoder.encodeInto(u.id, buf.subarray(offset + 2, offset + 2 + idLen));
+      offset += 2 + idLen;
 
       let mask = 0;
       if (u.x !== undefined) mask |= 1;
@@ -180,7 +174,8 @@ export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage 
   if (type === MessageType.Snapshot) {
     const serverTick = view.getUint32(1, true);
     const count = view.getUint16(5, true);
-    const entities: EntityState[] = [];
+    // Bolt: Pre-allocate array of exact length to avoid array re-allocations during deserialization
+    const entities: EntityState[] = new Array(count);
     let offset = 7;
     for (let i = 0; i < count; i++) {
       const idLen = view.getUint16(offset, true);
@@ -190,7 +185,7 @@ export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage 
       const x = view.getFloat32(offset, true);
       const y = view.getFloat32(offset + 4, true);
       offset += 8;
-      entities.push({ id, x, y });
+      entities[i] = { id, x, y };
     }
     return {
       type: MessageType.Snapshot,
@@ -203,7 +198,8 @@ export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage 
     const serverTick = view.getUint32(1, true);
     const baselineTick = view.getUint32(5, true);
     const count = view.getUint16(9, true);
-    const updates: EntityDeltaState[] = [];
+    // Bolt: Pre-allocate array of exact length to avoid array re-allocations during deserialization
+    const updates: EntityDeltaState[] = new Array(count);
     let offset = 11;
     for (let i = 0; i < count; i++) {
       const idLen = view.getUint16(offset, true);
@@ -223,7 +219,7 @@ export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage 
         update.y = view.getFloat32(offset, true);
         offset += 4;
       }
-      updates.push(update);
+      updates[i] = update;
     }
     return {
       type: MessageType.EntityDelta,
