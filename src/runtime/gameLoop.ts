@@ -113,11 +113,8 @@ function tick() {
   stateHistory.set(serverTick, currentTickMap);
 
   if (stateHistory.size > 90) { // Keep last 3 seconds
-    // ⚡ Bolt Optimization:
-    // In Map, keys maintain insertion order. Because serverTick is monotonically increasing,
-    // the oldest entry is always the first key in the map iterator.
-    // Using keys().next().value is O(1) time and avoids O(N) array spread allocations
-    // (Math.min(...keys)) in the 30Hz hot loop (~147x speedup).
+    // Bolt Optimization: Map keys are iterated in insertion order (monotonically increasing ticks).
+    // Using .keys().next().value gets the oldest tick in O(1) time without allocating an array via spread.
     const oldestTick = stateHistory.keys().next().value;
     if (oldestTick !== undefined) {
       stateHistory.delete(oldestTick);
@@ -125,8 +122,9 @@ function tick() {
   }
 
   const allEntities = Array.from(entities.values());
-  // Pre-calculate squared interest radius outside the filtering loop to avoid redundant math per entity
-  const INTEREST_RADIUS_SQ = 500 * 500;
+  const INTEREST_RADIUS = 500;
+  // Bolt Optimization: Precompute squared interest radius to avoid per-entity multiplication inside filter.
+  const INTEREST_RADIUS_SQ = INTEREST_RADIUS * INTEREST_RADIUS;
   
   // Replicate to all clients with interest filtering
   for (const conn of connections.values()) {
@@ -137,7 +135,7 @@ function tick() {
       relevantEntities = allEntities.filter(e => {
         const dx = e.x - playerEntity.x;
         const dy = e.y - playerEntity.y;
-        const distSq = dx * dx + dy * dy;
+        const distSq = dx*dx + dy*dy;
         return distSq <= INTEREST_RADIUS_SQ;
       });
     }
