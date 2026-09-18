@@ -57,12 +57,13 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
 
   if (msg.type === MessageType.Snapshot) {
     // Variable length
-    // Performance optimization: Calculate total payload size in a single pass without allocating
-    // intermediate Uint8Array objects or temporary arrays per entity. Encode directly using encodeInto.
-    const count = msg.entities.length;
-    let size = 7; // 1 byte type + 4 bytes tick + 2 bytes count
-    for (let i = 0; i < count; i++) {
-      size += 10 + getStringByteLength(msg.entities[i].id); // 2 (idLen) + idBytes + 4 (x) + 4 (y)
+    let size = 1 + 4 + 2; // type + tick + count
+    // Bolt: Pre-allocate array to avoid intermediate closure and array allocations from Array.prototype.map in tick loop
+    const encodedIds: Uint8Array[] = new Array(msg.entities.length);
+    for (let i = 0; i < msg.entities.length; i++) {
+      const eid = textEncoder.encode(msg.entities[i].id);
+      encodedIds[i] = eid;
+      size += 2 + eid.length + 4 + 4; // idLength + idBytes + x + y
     }
 
     const buf = new Uint8Array(size);
@@ -87,13 +88,14 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   }
 
   if (msg.type === MessageType.EntityDelta) {
-    // Performance optimization: Calculate total payload size in a single pass without allocating
-    // intermediate Uint8Array objects or temporary arrays per entity update. Encode directly using encodeInto.
-    const count = msg.updates.length;
-    let size = 11; // 1 byte type + 4 bytes serverTick + 4 bytes baselineTick + 2 bytes count
-    for (let i = 0; i < count; i++) {
+    let size = 1 + 4 + 4 + 2; // type + serverTick + baselineTick + count
+    // Bolt: Pre-allocate array to avoid intermediate closure and array allocations from Array.prototype.map in tick loop
+    const encodedIds: Uint8Array[] = new Array(msg.updates.length);
+    for (let i = 0; i < msg.updates.length; i++) {
       const u = msg.updates[i];
-      size += 3 + getStringByteLength(u.id); // 2 (idLen) + idBytes + 1 (mask)
+      const eid = textEncoder.encode(u.id);
+      encodedIds[i] = eid;
+      size += 2 + eid.length + 1; // idLen + idBytes + bitmask
       if (u.x !== undefined) size += 4;
       if (u.y !== undefined) size += 4;
     }
