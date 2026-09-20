@@ -56,14 +56,12 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   }
 
   if (msg.type === MessageType.Snapshot) {
+    const count = msg.entities.length;
     // Variable length
     let size = 1 + 4 + 2; // type + tick + count
-    // Bolt: Pre-allocate array to avoid intermediate closure and array allocations from Array.prototype.map in tick loop
-    const encodedIds: Uint8Array[] = new Array(msg.entities.length);
-    for (let i = 0; i < msg.entities.length; i++) {
-      const eid = textEncoder.encode(msg.entities[i].id);
-      encodedIds[i] = eid;
-      size += 2 + eid.length + 4 + 4; // idLength + idBytes + x + y
+    // Bolt: Use fast string byte length calculation to avoid allocating intermediate Uint8Arrays per entity ID
+    for (let i = 0; i < count; i++) {
+      size += 2 + getStringByteLength(msg.entities[i].id) + 4 + 4; // idLength + idBytes + x + y
     }
 
     const buf = new Uint8Array(size);
@@ -76,7 +74,7 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     for (let i = 0; i < count; i++) {
       const e = msg.entities[i];
       const idLen = getStringByteLength(e.id);
-      // DataView set for id length header
+      // Bolt: Encode directly into output buffer using encodeInto to eliminate GC allocations
       const res = textEncoder.encodeInto(e.id, buf.subarray(offset + 2, offset + 2 + idLen));
       view.setUint16(offset, res.written, true);
       offset += 2 + res.written;
@@ -88,14 +86,12 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   }
 
   if (msg.type === MessageType.EntityDelta) {
+    const count = msg.updates.length;
     let size = 1 + 4 + 4 + 2; // type + serverTick + baselineTick + count
-    // Bolt: Pre-allocate array to avoid intermediate closure and array allocations from Array.prototype.map in tick loop
-    const encodedIds: Uint8Array[] = new Array(msg.updates.length);
-    for (let i = 0; i < msg.updates.length; i++) {
+    // Bolt: Use fast string byte length calculation to avoid allocating intermediate Uint8Arrays per update ID
+    for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
-      const eid = textEncoder.encode(u.id);
-      encodedIds[i] = eid;
-      size += 2 + eid.length + 1; // idLen + idBytes + bitmask
+      size += 2 + getStringByteLength(u.id) + 1; // idLen + idBytes + bitmask
       if (u.x !== undefined) size += 4;
       if (u.y !== undefined) size += 4;
     }
@@ -111,6 +107,7 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
       const idLen = getStringByteLength(u.id);
+      // Bolt: Encode directly into output buffer using encodeInto to eliminate GC allocations
       const res = textEncoder.encodeInto(u.id, buf.subarray(offset + 2, offset + 2 + idLen));
       view.setUint16(offset, res.written, true);
       offset += 2 + res.written;
