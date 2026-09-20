@@ -57,13 +57,11 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
 
   if (msg.type === MessageType.Snapshot) {
     // Variable length
-    let size = 1 + 4 + 2; // type + tick + count
-    // Bolt: Pre-allocate array to avoid intermediate closure and array allocations from Array.prototype.map in tick loop
-    const encodedIds: Uint8Array[] = new Array(msg.entities.length);
-    for (let i = 0; i < msg.entities.length; i++) {
-      const eid = textEncoder.encode(msg.entities[i].id);
-      encodedIds[i] = eid;
-      size += 2 + eid.length + 4 + 4; // idLength + idBytes + x + y
+    const count = msg.entities.length;
+    let size = 1 + 4 + 2; // type + serverTick + count
+    for (let i = 0; i < count; i++) {
+      const idLen = getStringByteLength(msg.entities[i].id);
+      size += 2 + idLen + 8; // idLength + idBytes + x + y
     }
 
     const buf = new Uint8Array(size);
@@ -88,14 +86,12 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   }
 
   if (msg.type === MessageType.EntityDelta) {
+    const count = msg.updates.length;
     let size = 1 + 4 + 4 + 2; // type + serverTick + baselineTick + count
-    // Bolt: Pre-allocate array to avoid intermediate closure and array allocations from Array.prototype.map in tick loop
-    const encodedIds: Uint8Array[] = new Array(msg.updates.length);
-    for (let i = 0; i < msg.updates.length; i++) {
+    for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
-      const eid = textEncoder.encode(u.id);
-      encodedIds[i] = eid;
-      size += 2 + eid.length + 1; // idLen + idBytes + bitmask
+      const idLen = getStringByteLength(u.id);
+      size += 2 + idLen + 1; // idLen + idBytes + bitmask
       if (u.x !== undefined) size += 4;
       if (u.y !== undefined) size += 4;
     }
