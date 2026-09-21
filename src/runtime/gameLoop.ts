@@ -121,31 +121,30 @@ function tick() {
     }
   }
 
-  const allEntities = Array.from(entities.values());
   const INTEREST_RADIUS = 500;
-  // Bolt Optimization: Precompute squared interest radius to avoid per-entity multiplication inside filter.
+  // Bolt Optimization: Precompute squared interest radius to avoid per-entity sqrt or repeated multiplications.
   const INTEREST_RADIUS_SQ = INTEREST_RADIUS * INTEREST_RADIUS;
   
-  // Replicate to all clients with interest filtering
+  // Replicate to all clients with interest filtering.
+  // Bolt Optimization: Iterate over entities.values() directly in single-pass loops per connection.
+  // This eliminates allocating `allEntities` array every tick and `relevantEntities` filter arrays / closures per connection.
   for (const conn of connections.values()) {
     const playerEntity = entities.get(conn.entityId);
-    let relevantEntities = allEntities;
-    
-    if (playerEntity) {
-      relevantEntities = allEntities.filter(e => {
-        const dx = e.x - playerEntity.x;
-        const dy = e.y - playerEntity.y;
-        const distSq = dx*dx + dy*dy;
-        return distSq <= INTEREST_RADIUS_SQ;
-      });
-    }
+    const px = playerEntity ? playerEntity.x : 0;
+    const py = playerEntity ? playerEntity.y : 0;
 
     const baseline = stateHistory.get(conn.ackTick);
 
     if (baseline) {
       // Send delta
       const updates: EntityDeltaState[] = [];
-      for (const e of relevantEntities) {
+      for (const e of entities.values()) {
+        if (playerEntity) {
+          const dx = e.x - px;
+          const dy = e.y - py;
+          if (dx * dx + dy * dy > INTEREST_RADIUS_SQ) continue;
+        }
+
         const old = baseline.get(e.id);
         if (!old) {
           updates.push({ id: e.id, x: e.x, y: e.y });
@@ -166,10 +165,20 @@ function tick() {
         baselineTick: conn.ackTick,
         updates
       });
-       conn.channel.sendUnreliable(payload);
+      conn.channel.sendUnreliable(payload);
 
     } else {
       // Send full snapshot
+      const relevantEntities: EntityState[] = [];
+      for (const e of entities.values()) {
+        if (playerEntity) {
+          const dx = e.x - px;
+          const dy = e.y - py;
+          if (dx * dx + dy * dy > INTEREST_RADIUS_SQ) continue;
+        }
+        relevantEntities.push(e);
+      }
+
       const state: Snapshot = {
         type: MessageType.Snapshot,
         serverTick,
@@ -177,7 +186,7 @@ function tick() {
       };
       
       const payload = encodeMessage(state);
-       conn.channel.sendUnreliable(payload);
+      conn.channel.sendUnreliable(payload);
     }
   }
 }
