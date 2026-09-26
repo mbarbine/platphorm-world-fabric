@@ -3,13 +3,71 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import { AnyMessage, MessageType, Snapshot, EntityState } from './protocol/messages';
 import { encodeMessage, decodeMessage } from './protocol/binaryCodec';
 import { SmartClientTransport } from './transport/ClientTransport';
 import { LineChart, Line, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
-function RssFeedWidget() {
+// Bolt Optimization: Wrap chart sub-components in React.memo to prevent expensive SVG chart re-renders
+// when App state updates at 30Hz due to incoming game replication snapshots.
+const PacketLossChart = memo(({ data, loss }: { data: { time: string; loss: number }[]; loss: number }) => (
+  <ResponsiveContainer width="100%" height="100%">
+    <LineChart data={data}>
+      <YAxis domain={[0, 100]} hide />
+      <Tooltip
+        contentStyle={{ backgroundColor: '#14161C', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }}
+        labelStyle={{ color: '#888' }}
+        itemStyle={{ color: '#00FF41' }}
+      />
+      <Line type="stepAfter" dataKey="loss" stroke={loss > 0 ? '#ef4444' : '#00FF41'} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+    </LineChart>
+  </ResponsiveContainer>
+));
+
+const LatencyChart = memo(({ data }: { data: { time: string; p95: number }[] }) => (
+  <ResponsiveContainer width="100%" height="100%">
+    <BarChart data={data}>
+      <YAxis hide />
+      <Tooltip
+        contentStyle={{ backgroundColor: '#14161C', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }}
+        labelStyle={{ color: '#888' }}
+        itemStyle={{ color: '#a855f7' }}
+      />
+      <Bar dataKey="p95" fill="#a855f7" isAnimationActive={false} />
+    </BarChart>
+  </ResponsiveContainer>
+));
+
+const QueueDepthChart = memo(({ data }: { data: { time: string; queueDepth: number; p95: number; allocated: number; failed: number }[] }) => (
+  <ResponsiveContainer width="100%" height="100%">
+    <LineChart data={data}>
+      <YAxis hide />
+      <Tooltip
+        contentStyle={{ backgroundColor: '#14161C', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }}
+        labelStyle={{ color: '#888' }}
+        itemStyle={{ color: '#3b82f6' }}
+      />
+      <Line type="monotone" dataKey="queueDepth" stroke="#3b82f6" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+    </LineChart>
+  </ResponsiveContainer>
+));
+
+const P95WaitTimeChart = memo(({ data }: { data: { time: string; queueDepth: number; p95: number; allocated: number; failed: number }[] }) => (
+  <ResponsiveContainer width="100%" height="100%">
+    <LineChart data={data}>
+      <YAxis hide />
+      <Tooltip
+        contentStyle={{ backgroundColor: '#14161C', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }}
+        labelStyle={{ color: '#888' }}
+        itemStyle={{ color: '#a855f7' }}
+      />
+      <Line type="monotone" dataKey="p95" stroke="#a855f7" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+    </LineChart>
+  </ResponsiveContainer>
+));
+
+const RssFeedWidget = memo(function RssFeedWidget() {
   const [items, setItems] = useState<any[]>([]);
   useEffect(() => {
     fetch('/api/rss')
@@ -40,9 +98,9 @@ function RssFeedWidget() {
       ))}
     </div>
   );
-}
+});
 
-function AIChatWidget() {
+const AIChatWidget = memo(function AIChatWidget() {
   const [prompt, setPrompt] = useState('');
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -105,7 +163,7 @@ function AIChatWidget() {
       </div>
     </div>
   );
-}
+});
 
 function getConnectionQuality(ping: number, loss: number) {
   if (ping < 100 && loss < 2) return 'Good';
@@ -113,7 +171,7 @@ function getConnectionQuality(ping: number, loss: number) {
   return 'Poor';
 }
 
-function ConnectionQualityBars({ quality }: { quality: 'Good' | 'Fair' | 'Poor' }) {
+const ConnectionQualityBars = memo(function ConnectionQualityBars({ quality }: { quality: 'Good' | 'Fair' | 'Poor' }) {
   const bars = quality === 'Good' ? 3 : quality === 'Fair' ? 2 : 1;
   const color = quality === 'Good' ? 'bg-[#00FF41]' : quality === 'Fair' ? 'bg-yellow-500' : 'bg-red-500';
   
@@ -124,7 +182,7 @@ function ConnectionQualityBars({ quality }: { quality: 'Good' | 'Fair' | 'Poor' 
       <div className={`w-1 h-3 ${bars >= 3 ? color : 'bg-gray-700'}`}></div>
     </div>
   );
-}
+});
 
 interface LogEvent {
   id: number;
@@ -637,17 +695,7 @@ export default function App() {
               </div>
               
               <div className="h-16 w-full mt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={packetLossHistory}>
-                    <YAxis domain={[0, 100]} hide />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#14161C', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }} 
-                      labelStyle={{ color: '#888' }} 
-                      itemStyle={{ color: '#00FF41' }} 
-                    />
-                    <Line type="stepAfter" dataKey="loss" stroke={packetLoss > 0 ? '#ef4444' : '#00FF41'} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <PacketLossChart data={packetLossHistory} loss={packetLoss} />
               </div>
 
               <div className="flex justify-between items-center mt-2">
@@ -658,17 +706,7 @@ export default function App() {
               </div>
 
               <div className="h-16 w-full mt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={latencyHistory}>
-                    <YAxis hide />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#14161C', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }} 
-                      labelStyle={{ color: '#888' }} 
-                      itemStyle={{ color: '#a855f7' }} 
-                    />
-                    <Bar dataKey="p95" fill="#a855f7" isAnimationActive={false} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <LatencyChart data={latencyHistory} />
               </div>
               
               <div className="flex justify-between items-center">
@@ -693,17 +731,7 @@ export default function App() {
               </div>
               
               <div className="h-12 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={matchmakingHistory}>
-                    <YAxis hide />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#14161C', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }} 
-                      labelStyle={{ color: '#888' }} 
-                      itemStyle={{ color: '#3b82f6' }} 
-                    />
-                    <Line type="monotone" dataKey="queueDepth" stroke="#3b82f6" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <QueueDepthChart data={matchmakingHistory} />
               </div>
 
               <div className="flex justify-between items-center mt-2">
@@ -714,17 +742,7 @@ export default function App() {
               </div>
 
               <div className="h-12 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={matchmakingHistory}>
-                    <YAxis hide />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#14161C', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }} 
-                      labelStyle={{ color: '#888' }} 
-                      itemStyle={{ color: '#a855f7' }} 
-                    />
-                    <Line type="monotone" dataKey="p95" stroke="#a855f7" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <P95WaitTimeChart data={matchmakingHistory} />
               </div>
 
               <div className="pt-2 border-t border-white/5">
