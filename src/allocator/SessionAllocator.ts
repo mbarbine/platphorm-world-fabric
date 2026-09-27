@@ -53,8 +53,14 @@ export class SessionAllocator {
     
     this.transitionSession(sessionId, "ALLOCATING");
 
-    // Find warm node in region
-    const node = Array.from(this.nodes.values()).find(n => n.region === session.region && n.state === "WARM" && n.capacity > 0);
+    // Bolt Optimization: Direct single-pass for...of iteration over map values to avoid intermediate array allocation via Array.from
+    let node;
+    for (const n of this.nodes.values()) {
+      if (n.region === session.region && n.state === "WARM" && n.capacity > 0) {
+        node = n;
+        break;
+      }
+    }
     
     if (node) {
       session.nodeId = node.id;
