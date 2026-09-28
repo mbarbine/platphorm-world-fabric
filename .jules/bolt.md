@@ -12,3 +12,8 @@
 
 **Learning:** In realtime game/telemetry applications where game entity state updates at 30Hz, rendering Recharts SVG components directly inside the top-level parent component causes all charts to re-render 30 times a second (120 chart renders/sec), even when telemetry data only updates at 1Hz.
 **Action:** Extract Recharts chart trees into dedicated `React.memo` components so React skips VDOM reconciliation when history array references remain unchanged between 1-second telemetry intervals.
+
+## 2026-09-04 - Avoid temporary typed array allocations in hot binary encoding loops
+
+**Learning:** Allocating a temporary `Int32Array` or `Array` inside hot serialization functions to cache string lengths introduces heap allocation and GC pressure that outweighs simple inline string length checks.
+**Action:** Keep string byte-length calculations inline or re-use a module-scoped buffer when serializing binary packets in hot loops.
