@@ -107,8 +107,9 @@ function tick() {
   serverTick++;
   
   const currentTickMap = new Map<string, EntityState>();
-  for (const [k, v] of entities.entries()) {
-    currentTickMap.set(k, { ...v });
+  // Bolt Optimization: Iterate over entities.values() directly to eliminate allocating temporary [key, value] tuple arrays every tick.
+  for (const v of entities.values()) {
+    currentTickMap.set(v.id, { ...v });
   }
   stateHistory.set(serverTick, currentTickMap);
 
