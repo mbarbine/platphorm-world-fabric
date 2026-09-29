@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState, useCallback, memo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { AnyMessage, MessageType, Snapshot, EntityState } from './protocol/messages';
 import { encodeMessage, decodeMessage } from './protocol/binaryCodec';
 import { SmartClientTransport } from './transport/ClientTransport';
@@ -191,6 +191,73 @@ interface LogEvent {
   type: 'info' | 'error' | 'success';
 }
 
+interface RegionalMetric {
+  region: string;
+  status: string;
+  playerCount: number;
+  capacity: number;
+  p95LatencyMs: number;
+}
+
+// Bolt Optimization: Extract and memoize RegionalOverview component and useMemo for region filtering at module scope.
+// During 30Hz game state replication updates, parent App component re-renders 30 times/sec.
+// Defining RegionalOverview at module scope with React.memo prevents component remounting, state wiping, and DOM table diffing on every 30Hz tick.
+const RegionalOverview = memo(function RegionalOverview({ regionalMetrics }: { regionalMetrics: RegionalMetric[] }) {
+  const [regionFilter, setRegionFilter] = useState('');
+
+  const filteredMetrics = useMemo(() => {
+    if (!regionFilter) return regionalMetrics;
+    const lower = regionFilter.toLowerCase();
+    return regionalMetrics.filter(r => r.region.toLowerCase().includes(lower));
+  }, [regionalMetrics, regionFilter]);
+
+  return (
+    <section className="flex flex-col border-t border-white/5">
+      <div className="p-4 border-b border-white/5 bg-[#14161C]">
+        <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Regional Overview</h2>
+        <p className="text-[9px] font-mono text-gray-600">CAPACITY & HEALTH</p>
+      </div>
+
+      <div className="p-4">
+        <input
+          type="text"
+          placeholder="Filter regions..."
+          value={regionFilter}
+          onChange={(e) => setRegionFilter(e.target.value)}
+          className="w-full bg-[#1A1C23] border border-white/10 text-white text-[11px] font-mono px-3 py-1.5 mb-3 rounded-sm focus:outline-none focus:border-[#3b82f6] transition-colors"
+        />
+        <table className="w-full text-left">
+          <thead>
+            <tr className="text-[10px] font-mono text-gray-500 border-b border-white/5">
+              <th className="pb-2 font-normal">REGION</th>
+              <th className="pb-2 font-normal">STATUS</th>
+              <th className="pb-2 font-normal text-right">PLAYERS</th>
+              <th className="pb-2 font-normal text-right">P95 (ms)</th>
+            </tr>
+          </thead>
+          <tbody className="text-[11px] font-mono">
+            {filteredMetrics.map((region) => (
+              <tr key={region.region} className="border-b border-white/5 last:border-0">
+                <td className="py-2 text-white">{region.region}</td>
+                <td className="py-2">
+                  <span className={`inline-flex items-center gap-1.5 ${region.status === 'HEALTHY' ? 'text-[#00FF41]' : 'text-amber-500'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${region.status === 'HEALTHY' ? 'bg-[#00FF41]' : 'bg-amber-500'}`} />
+                    {region.status}
+                  </span>
+                </td>
+                <td className="py-2 text-right text-gray-300">
+                  {region.playerCount} <span className="text-gray-600">/ {region.capacity}</span>
+                </td>
+                <td className="py-2 text-right text-gray-300">{region.p95LatencyMs}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+});
+
 export default function App() {
   const [connectionStatus, setConnectionStatus] = useState<string>('Disconnected');
   const [transportType, setTransportType] = useState<string>('None');
@@ -271,8 +338,7 @@ export default function App() {
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const [matchmakingHistory, setMatchmakingHistory] = useState<{ time: string, queueDepth: number, p95: number, allocated: number, failed: number }[]>([]);
-  const [regionalMetrics, setRegionalMetrics] = useState<{ region: string, status: string, playerCount: number, capacity: number, p95LatencyMs: number }[]>([]);
-  const [regionFilter, setRegionFilter] = useState('');
+  const [regionalMetrics, setRegionalMetrics] = useState<RegionalMetric[]>([]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -762,49 +828,7 @@ export default function App() {
             </div>
           </section>
 
-          <section className="flex flex-col border-t border-white/5">
-            <div className="p-4 border-b border-white/5 bg-[#14161C]">
-              <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Regional Overview</h2>
-              <p className="text-[9px] font-mono text-gray-600">CAPACITY & HEALTH</p>
-            </div>
-            
-            <div className="p-4">
-              <input 
-                type="text" 
-                placeholder="Filter regions..." 
-                value={regionFilter}
-                onChange={(e) => setRegionFilter(e.target.value)}
-                className="w-full bg-[#1A1C23] border border-white/10 text-white text-[11px] font-mono px-3 py-1.5 mb-3 rounded-sm focus:outline-none focus:border-[#3b82f6] transition-colors"
-              />
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="text-[10px] font-mono text-gray-500 border-b border-white/5">
-                    <th className="pb-2 font-normal">REGION</th>
-                    <th className="pb-2 font-normal">STATUS</th>
-                    <th className="pb-2 font-normal text-right">PLAYERS</th>
-                    <th className="pb-2 font-normal text-right">P95 (ms)</th>
-                  </tr>
-                </thead>
-                <tbody className="text-[11px] font-mono">
-                  {regionalMetrics.filter(region => region.region.toLowerCase().includes(regionFilter.toLowerCase())).map((region) => (
-                    <tr key={region.region} className="border-b border-white/5 last:border-0">
-                      <td className="py-2 text-white">{region.region}</td>
-                      <td className="py-2">
-                        <span className={`inline-flex items-center gap-1.5 ${region.status === 'HEALTHY' ? 'text-[#00FF41]' : 'text-amber-500'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${region.status === 'HEALTHY' ? 'bg-[#00FF41]' : 'bg-amber-500'}`} />
-                          {region.status}
-                        </span>
-                      </td>
-                      <td className="py-2 text-right text-gray-300">
-                        {region.playerCount} <span className="text-gray-600">/ {region.capacity}</span>
-                      </td>
-                      <td className="py-2 text-right text-gray-300">{region.p95LatencyMs}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <RegionalOverview regionalMetrics={regionalMetrics} />
 
           <section className="flex flex-col flex-1 min-h-0 border-t border-white/5">
             <div className="p-4 border-b border-white/5 bg-[#14161C] shrink-0">
