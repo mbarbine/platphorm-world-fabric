@@ -17,3 +17,8 @@
 
 **Learning:** Allocating a temporary `Int32Array` or `Array` inside hot serialization functions to cache string lengths introduces heap allocation and GC pressure that outweighs simple inline string length checks.
 **Action:** Keep string byte-length calculations inline or re-use a module-scoped buffer when serializing binary packets in hot loops.
+
+## 2026-09-05 - Fast ASCII string decoding and pre-allocation for high-frequency binary state replication
+
+**Learning:** Calling `TextDecoder.prototype.decode(buf.subarray(...))` and `Array.prototype.push()` inside high-frequency binary packet decoding loops (30Hz replication snapshots) causes heavy garbage collection pressure due to temporary Uint8Array view allocations and dynamic array growth.
+**Action:** Use an inline fast-path ASCII byte decoder for short strings (<64 bytes) and pre-allocate fixed-capacity arrays (`new Array(count)`) when parsing binary snapshots and delta updates.
