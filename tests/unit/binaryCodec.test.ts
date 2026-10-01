@@ -15,6 +15,33 @@ describe('binaryCodec', () => {
     expect(decoded).toEqual(original);
   });
 
+  it('should correctly encode and decode non-ASCII UTF-8 entity IDs in Snapshot and EntityDelta', () => {
+    const nonAsciiSnapshot: Snapshot = {
+      type: MessageType.Snapshot,
+      serverTick: 2001,
+      entities: [
+        { id: 'player_⚡_1', x: 15.0, y: 30.0 },
+        { id: 'boss_👾', x: -100.5, y: 250.0 }
+      ]
+    };
+    const encodedSnapshot = encodeMessage(nonAsciiSnapshot);
+    const decodedSnapshot = decodeMessage(encodedSnapshot);
+    expect(decodedSnapshot).toEqual(nonAsciiSnapshot);
+
+    const nonAsciiDelta: EntityDeltaMessage = {
+      type: MessageType.EntityDelta,
+      serverTick: 2002,
+      baselineTick: 2001,
+      updates: [
+        { id: 'player_⚡_1', x: 18.5 },
+        { id: 'boss_👾', y: 260.0 }
+      ]
+    };
+    const encodedDelta = encodeMessage(nonAsciiDelta);
+    const decodedDelta = decodeMessage(encodedDelta);
+    expect(decodedDelta).toEqual(nonAsciiDelta);
+  });
+
   it('should encode and decode Ping', () => {
     const original: Ping = {
       type: MessageType.Ping,
