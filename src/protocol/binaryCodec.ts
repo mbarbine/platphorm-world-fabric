@@ -42,6 +42,30 @@ function getStringByteLength(str: string): number {
   return len;
 }
 
+/**
+ * Fast ASCII string encoder.
+ * Writes ASCII character codes directly into the target Uint8Array buffer without allocating
+ * intermediate Uint8Array view objects via buf.subarray() or invoking TextEncoder.encodeInto.
+ * Reduces GC pressure and serialization time during high-frequency tick replication.
+ */
+function encodeStringInto(str: string, buf: Uint8Array, offset: number): number {
+  const len = str.length;
+  let ascii = true;
+  for (let i = 0; i < len; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 0x80) {
+      ascii = false;
+      break;
+    }
+    buf[offset + i] = code;
+  }
+  if (ascii) return len;
+
+  // Fallback for non-ASCII strings
+  const byteLen = getStringByteLength(str);
+  return textEncoder.encodeInto(str, buf.subarray(offset, offset + byteLen)).written;
+}
+
 export function encodeMessage(msg: AnyMessage): Uint8Array {
   if (msg.type === MessageType.InputFrame) {
     const buf = new Uint8Array(13);
@@ -96,11 +120,11 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     let offset = 7;
     for (let i = 0; i < count; i++) {
       const e = msg.entities[i];
-      const idLen = getStringByteLength(e.id);
-      // Bolt: Encode directly into output buffer using encodeInto to eliminate GC allocations
-      const res = textEncoder.encodeInto(e.id, buf.subarray(offset + 2, offset + 2 + idLen));
-      view.setUint16(offset, res.written, true);
-      offset += 2 + res.written;
+      // Bolt Optimization: Use fast inline ASCII string encoder to write directly into target buffer
+      // without allocating Uint8Array subarray views or making redundant byte length recalculations.
+      const written = encodeStringInto(e.id, buf, offset + 2);
+      view.setUint16(offset, written, true);
+      offset += 2 + written;
       view.setFloat32(offset, e.x, true);
       view.setFloat32(offset + 4, e.y, true);
       offset += 8;
@@ -129,11 +153,11 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     let offset = 11;
     for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
-      const idLen = getStringByteLength(u.id);
-      // Bolt: Encode directly into output buffer using encodeInto to eliminate GC allocations
-      const res = textEncoder.encodeInto(u.id, buf.subarray(offset + 2, offset + 2 + idLen));
-      view.setUint16(offset, res.written, true);
-      offset += 2 + res.written;
+      // Bolt Optimization: Use fast inline ASCII string encoder to write directly into target buffer
+      // without allocating Uint8Array subarray views or making redundant byte length recalculations.
+      const written = encodeStringInto(u.id, buf, offset + 2);
+      view.setUint16(offset, written, true);
+      offset += 2 + written;
 
       let mask = 0;
       if (u.x !== undefined) mask |= 1;

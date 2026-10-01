@@ -22,3 +22,8 @@
 
 **Learning:** Calling `TextDecoder.prototype.decode(buf.subarray(...))` and `Array.prototype.push()` inside high-frequency binary packet decoding loops (30Hz replication snapshots) causes heavy garbage collection pressure due to temporary Uint8Array view allocations and dynamic array growth.
 **Action:** Use an inline fast-path ASCII byte decoder for short strings (<64 bytes) and pre-allocate fixed-capacity arrays (`new Array(count)`) when parsing binary snapshots and delta updates.
+
+## 2026-09-06 - Avoid Uint8Array subarray view allocations in hot binary string encoding
+
+**Learning:** Passing `buf.subarray(offset, offset + len)` into `TextEncoder.prototype.encodeInto()` inside high-frequency serialization loops creates temporary Uint8Array view objects for every string field on every tick (30Hz), generating GC pressure and redundant byte length recalculations.
+**Action:** Use an inline ASCII string encoder that writes character codes directly into the destination buffer byte-by-byte for ASCII strings, falling back to `encodeInto` only when non-ASCII bytes are encountered.
