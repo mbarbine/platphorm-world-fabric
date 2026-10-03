@@ -12,6 +12,15 @@ interface Ticket {
 
 const tickets = new Map<string, Ticket>();
 
+// Bolt Optimization: Maintain running metric counters and a fixed-size sliding window for wait times.
+// This turns getMatchmakingMetrics from an O(N log N) linear Map scan and sort over all historical tickets
+// into an O(1) counter lookup and bounded O(K log K) sort (K <= 100), eliminating GC pressure during telemetry polling.
+let queuedCount = 0;
+let allocatedCount = 0;
+let failedCount = 0;
+const MAX_WAIT_TIME_SAMPLES = 100;
+const recentWaitTimes: number[] = [];
+
 export function submitTicket(lobbyId: string): string {
   const ticketId = Math.random().toString(36).substring(7);
   tickets.set(ticketId, {
@@ -20,6 +29,7 @@ export function submitTicket(lobbyId: string): string {
     status: 'queued',
     createdAt: Date.now(),
   });
+  queuedCount++;
   
   // Simulated matchmaker logic: instantly allocate after 2-5 seconds
   setTimeout(() => {
@@ -32,11 +42,21 @@ export function submitTicket(lobbyId: string): string {
 function allocateTicket(ticketId: string) {
   const ticket = tickets.get(ticketId);
   if (!ticket) return;
+  if (ticket.status === 'queued') {
+    queuedCount--;
+  }
   ticket.status = 'allocated';
   ticket.allocatedAt = Date.now();
   ticket.assignedSessionId = "session_" + Math.random().toString(36).substring(7);
   // Do not hardcode localhost. An empty workerUrl will tell the client to use its current host.
-  ticket.workerUrl = ""; 
+  ticket.workerUrl = "";
+
+  allocatedCount++;
+  const waitMs = ticket.allocatedAt - ticket.createdAt;
+  recentWaitTimes.push(waitMs);
+  if (recentWaitTimes.length > MAX_WAIT_TIME_SAMPLES) {
+    recentWaitTimes.shift();
+  }
 }
 
 export function getTicket(ticketId: string): Ticket | null {
@@ -44,14 +64,10 @@ export function getTicket(ticketId: string): Ticket | null {
 }
 
 export function getMatchmakingMetrics() {
-  const now = Date.now();
-  let queuedCount = 0;
-  let allocatedCount = 0;
-  let failedCount = 0;
-  const waitTimes: number[] = [];
+  const totalTracked = queuedCount + allocatedCount + failedCount;
 
   // Generate some synthetic historical metrics to make the chart look alive if empty
-  if (tickets.size === 0) {
+  if (totalTracked === 0 && tickets.size === 0) {
     const syntheticQueueDepth = Math.floor(Math.random() * 50);
     const syntheticP95 = 2000 + Math.random() * 3000;
     return {
@@ -65,22 +81,13 @@ export function getMatchmakingMetrics() {
     };
   }
 
-  for (const ticket of tickets.values()) {
-    if (ticket.status === 'queued') {
-      queuedCount++;
-    } else if (ticket.status === 'allocated') {
-      allocatedCount++;
-      if (ticket.allocatedAt) {
-        waitTimes.push(ticket.allocatedAt - ticket.createdAt);
-      }
-    } else if (ticket.status === 'failed') {
-      failedCount++;
-    }
+  // Bolt Optimization: Compute P95 over bounded recent wait times (max 100 samples)
+  let p95WaitTimeMs = 0;
+  if (recentWaitTimes.length > 0) {
+    const sorted = [...recentWaitTimes].sort((a, b) => a - b);
+    const p95Index = Math.floor(sorted.length * 0.95);
+    p95WaitTimeMs = sorted[p95Index] || 0;
   }
-
-  waitTimes.sort((a, b) => a - b);
-  const p95Index = Math.floor(waitTimes.length * 0.95);
-  const p95WaitTimeMs = waitTimes.length > 0 ? waitTimes[p95Index] : 0;
 
   return {
     queueDepth: queuedCount,

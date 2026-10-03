@@ -27,3 +27,8 @@
 
 **Learning:** Passing `buf.subarray(offset, offset + len)` into `TextEncoder.prototype.encodeInto()` inside high-frequency serialization loops creates temporary Uint8Array view objects for every string field on every tick (30Hz), generating GC pressure and redundant byte length recalculations.
 **Action:** Use an inline ASCII string encoder that writes character codes directly into the destination buffer byte-by-byte for ASCII strings, falling back to `encodeInto` only when non-ASCII bytes are encountered.
+
+## 2026-09-07 - Maintain running counters and bounded sliding windows for polled metrics endpoints
+
+**Learning:** Re-scanning Map data structures and sorting full historical arrays on every telemetry polling request causes O(N log N) time complexity and linear garbage allocations that scale with total historical operations.
+**Action:** Maintain incremental running counters during state transitions and a bounded sliding window array (e.g. max 100 samples) for percentile metrics calculation to guarantee O(1) / O(K log K) metric responses.
