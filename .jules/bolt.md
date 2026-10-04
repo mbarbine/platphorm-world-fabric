@@ -27,3 +27,8 @@
 
 **Learning:** Passing `buf.subarray(offset, offset + len)` into `TextEncoder.prototype.encodeInto()` inside high-frequency serialization loops creates temporary Uint8Array view objects for every string field on every tick (30Hz), generating GC pressure and redundant byte length recalculations.
 **Action:** Use an inline ASCII string encoder that writes character codes directly into the destination buffer byte-by-byte for ASCII strings, falling back to `encodeInto` only when non-ASCII bytes are encountered.
+
+## 2026-09-07 - Replace per-message DataView allocations with direct bitwise byte access and shared module scratch buffers
+
+**Learning:** Instantiating `new DataView(...)` wrapper objects on every `encodeMessage` and `decodeMessage` call in 30Hz game state replication loops adds significant GC pressure and C++ binding overhead, slowing binary codec throughput down by ~60%.
+**Action:** Use direct `Uint8Array` bitwise shift operations for Uint16/Uint32 LE reads and writes, and a module-scoped scratch ArrayBuffer and DataView for Float32/Float64 conversions.

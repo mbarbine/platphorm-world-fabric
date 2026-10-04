@@ -4,6 +4,80 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 /**
+ * Module-scoped scratch buffer and views for zero-allocation floating-point encoding/decoding.
+ * Re-using a single 8-byte ArrayBuffer eliminates per-message DataView wrapper object creation
+ * during high-frequency (30Hz) binary state replication and client frame processing.
+ */
+const scratchBuffer = new ArrayBuffer(8);
+const scratchDataView = new DataView(scratchBuffer);
+const scratchUint8 = new Uint8Array(scratchBuffer);
+
+function writeFloat32LE(buf: Uint8Array, offset: number, val: number): void {
+  scratchDataView.setFloat32(0, val, true);
+  buf[offset] = scratchUint8[0];
+  buf[offset + 1] = scratchUint8[1];
+  buf[offset + 2] = scratchUint8[2];
+  buf[offset + 3] = scratchUint8[3];
+}
+
+function readFloat32LE(buf: Uint8Array, offset: number): number {
+  scratchUint8[0] = buf[offset];
+  scratchUint8[1] = buf[offset + 1];
+  scratchUint8[2] = buf[offset + 2];
+  scratchUint8[3] = buf[offset + 3];
+  return scratchDataView.getFloat32(0, true);
+}
+
+function writeFloat64LE(buf: Uint8Array, offset: number, val: number): void {
+  scratchDataView.setFloat64(0, val, true);
+  buf[offset] = scratchUint8[0];
+  buf[offset + 1] = scratchUint8[1];
+  buf[offset + 2] = scratchUint8[2];
+  buf[offset + 3] = scratchUint8[3];
+  buf[offset + 4] = scratchUint8[4];
+  buf[offset + 5] = scratchUint8[5];
+  buf[offset + 6] = scratchUint8[6];
+  buf[offset + 7] = scratchUint8[7];
+}
+
+function readFloat64LE(buf: Uint8Array, offset: number): number {
+  scratchUint8[0] = buf[offset];
+  scratchUint8[1] = buf[offset + 1];
+  scratchUint8[2] = buf[offset + 2];
+  scratchUint8[3] = buf[offset + 3];
+  scratchUint8[4] = buf[offset + 4];
+  scratchUint8[5] = buf[offset + 5];
+  scratchUint8[6] = buf[offset + 6];
+  scratchUint8[7] = buf[offset + 7];
+  return scratchDataView.getFloat64(0, true);
+}
+
+/**
+ * Fast bitwise integer encoding/decoding helpers.
+ * Directly setting/getting Uint8Array byte indices avoids C++ DataView method call overhead
+ * and per-message DataView heap object allocations.
+ */
+function writeUint16LE(buf: Uint8Array, offset: number, val: number): void {
+  buf[offset] = val & 0xff;
+  buf[offset + 1] = (val >> 8) & 0xff;
+}
+
+function readUint16LE(buf: Uint8Array, offset: number): number {
+  return buf[offset] | (buf[offset + 1] << 8);
+}
+
+function writeUint32LE(buf: Uint8Array, offset: number, val: number): void {
+  buf[offset] = val & 0xff;
+  buf[offset + 1] = (val >> 8) & 0xff;
+  buf[offset + 2] = (val >> 16) & 0xff;
+  buf[offset + 3] = (val >> 24) & 0xff;
+}
+
+function readUint32LE(buf: Uint8Array, offset: number): number {
+  return (buf[offset] | (buf[offset + 1] << 8) | (buf[offset + 2] << 16) | (buf[offset + 3] << 24)) >>> 0;
+}
+
+/**
  * Fast string decoding helper.
  * For short ASCII strings (< 64 bytes), builds the string via String.fromCharCode directly
  * without allocating intermediate Uint8Array subarray slices or invoking TextDecoder.
@@ -69,36 +143,32 @@ function encodeStringInto(str: string, buf: Uint8Array, offset: number): number 
 export function encodeMessage(msg: AnyMessage): Uint8Array {
   if (msg.type === MessageType.InputFrame) {
     const buf = new Uint8Array(13);
-    const view = new DataView(buf.buffer);
-    view.setUint8(0, msg.type);
-    view.setUint32(1, msg.sequence, true);
-    view.setFloat32(5, msg.inputX, true);
-    view.setFloat32(9, msg.inputY, true);
+    buf[0] = msg.type;
+    writeUint32LE(buf, 1, msg.sequence);
+    writeFloat32LE(buf, 5, msg.inputX);
+    writeFloat32LE(buf, 9, msg.inputY);
     return buf;
   }
   
   if (msg.type === MessageType.Ping) {
     const buf = new Uint8Array(9);
-    const view = new DataView(buf.buffer);
-    view.setUint8(0, msg.type);
-    view.setFloat64(1, msg.clientTime, true);
+    buf[0] = msg.type;
+    writeFloat64LE(buf, 1, msg.clientTime);
     return buf;
   }
 
   if (msg.type === MessageType.Pong) {
     const buf = new Uint8Array(17);
-    const view = new DataView(buf.buffer);
-    view.setUint8(0, msg.type);
-    view.setFloat64(1, msg.clientTime, true);
-    view.setFloat64(9, msg.serverTime, true);
+    buf[0] = msg.type;
+    writeFloat64LE(buf, 1, msg.clientTime);
+    writeFloat64LE(buf, 9, msg.serverTime);
     return buf;
   }
 
   if (msg.type === MessageType.SnapshotAck) {
     const buf = new Uint8Array(5);
-    const view = new DataView(buf.buffer);
-    view.setUint8(0, msg.type);
-    view.setUint32(1, msg.serverTick, true);
+    buf[0] = msg.type;
+    writeUint32LE(buf, 1, msg.serverTick);
     return buf;
   }
 
@@ -112,10 +182,9 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     }
 
     const buf = new Uint8Array(size);
-    const view = new DataView(buf.buffer);
-    view.setUint8(0, msg.type);
-    view.setUint32(1, msg.serverTick, true);
-    view.setUint16(5, count, true);
+    buf[0] = msg.type;
+    writeUint32LE(buf, 1, msg.serverTick);
+    writeUint16LE(buf, 5, count);
     
     let offset = 7;
     for (let i = 0; i < count; i++) {
@@ -123,10 +192,10 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
       // Bolt Optimization: Use fast inline ASCII string encoder to write directly into target buffer
       // without allocating Uint8Array subarray views or making redundant byte length recalculations.
       const written = encodeStringInto(e.id, buf, offset + 2);
-      view.setUint16(offset, written, true);
+      writeUint16LE(buf, offset, written);
       offset += 2 + written;
-      view.setFloat32(offset, e.x, true);
-      view.setFloat32(offset + 4, e.y, true);
+      writeFloat32LE(buf, offset, e.x);
+      writeFloat32LE(buf, offset + 4, e.y);
       offset += 8;
     }
     return buf;
@@ -144,11 +213,10 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
     }
 
     const buf = new Uint8Array(size);
-    const view = new DataView(buf.buffer);
-    view.setUint8(0, msg.type);
-    view.setUint32(1, msg.serverTick, true);
-    view.setUint32(5, msg.baselineTick, true);
-    view.setUint16(9, count, true);
+    buf[0] = msg.type;
+    writeUint32LE(buf, 1, msg.serverTick);
+    writeUint32LE(buf, 5, msg.baselineTick);
+    writeUint16LE(buf, 9, count);
     
     let offset = 11;
     for (let i = 0; i < count; i++) {
@@ -156,17 +224,17 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
       // Bolt Optimization: Use fast inline ASCII string encoder to write directly into target buffer
       // without allocating Uint8Array subarray views or making redundant byte length recalculations.
       const written = encodeStringInto(u.id, buf, offset + 2);
-      view.setUint16(offset, written, true);
+      writeUint16LE(buf, offset, written);
       offset += 2 + written;
 
       let mask = 0;
       if (u.x !== undefined) mask |= 1;
       if (u.y !== undefined) mask |= 2;
-      view.setUint8(offset, mask);
+      buf[offset] = mask;
       offset += 1;
 
-      if (u.x !== undefined) { view.setFloat32(offset, u.x, true); offset += 4; }
-      if (u.y !== undefined) { view.setFloat32(offset, u.y, true); offset += 4; }
+      if (u.x !== undefined) { writeFloat32LE(buf, offset, u.x); offset += 4; }
+      if (u.y !== undefined) { writeFloat32LE(buf, offset, u.y); offset += 4; }
     }
     return buf;
   }
@@ -182,8 +250,7 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
 
 export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  const type = view.getUint8(0);
+  const type = buf[0];
 
   if (type === 0xFF) {
     const str = textDecoder.decode(buf.subarray(1));
@@ -193,48 +260,48 @@ export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage 
   if (type === MessageType.InputFrame) {
     return {
       type: MessageType.InputFrame,
-      sequence: view.getUint32(1, true),
-      inputX: view.getFloat32(5, true),
-      inputY: view.getFloat32(9, true)
+      sequence: readUint32LE(buf, 1),
+      inputX: readFloat32LE(buf, 5),
+      inputY: readFloat32LE(buf, 9)
     };
   }
   
   if (type === MessageType.Ping) {
     return {
       type: MessageType.Ping,
-      clientTime: view.getFloat64(1, true)
+      clientTime: readFloat64LE(buf, 1)
     };
   }
 
   if (type === MessageType.Pong) {
     return {
       type: MessageType.Pong,
-      clientTime: view.getFloat64(1, true),
-      serverTime: view.getFloat64(9, true)
+      clientTime: readFloat64LE(buf, 1),
+      serverTime: readFloat64LE(buf, 9)
     };
   }
 
   if (type === MessageType.SnapshotAck) {
     return {
       type: MessageType.SnapshotAck,
-      serverTick: view.getUint32(1, true)
+      serverTick: readUint32LE(buf, 1)
     };
   }
 
   if (type === MessageType.Snapshot) {
-    const serverTick = view.getUint32(1, true);
-    const count = view.getUint16(5, true);
+    const serverTick = readUint32LE(buf, 1);
+    const count = readUint16LE(buf, 5);
     // Bolt Optimization: Pre-allocate array with fixed size 'count' to avoid dynamic resizing via push()
     const entities: EntityState[] = new Array(count);
     let offset = 7;
     for (let i = 0; i < count; i++) {
-      const idLen = view.getUint16(offset, true);
+      const idLen = readUint16LE(buf, offset);
       offset += 2;
       // Bolt Optimization: Use fast ASCII string decoding helper
       const id = decodeString(buf, offset, idLen);
       offset += idLen;
-      const x = view.getFloat32(offset, true);
-      const y = view.getFloat32(offset + 4, true);
+      const x = readFloat32LE(buf, offset);
+      const y = readFloat32LE(buf, offset + 4);
       offset += 8;
       entities[i] = { id, x, y };
     }
@@ -246,29 +313,29 @@ export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage 
   }
 
   if (type === MessageType.EntityDelta) {
-    const serverTick = view.getUint32(1, true);
-    const baselineTick = view.getUint32(5, true);
-    const count = view.getUint16(9, true);
+    const serverTick = readUint32LE(buf, 1);
+    const baselineTick = readUint32LE(buf, 5);
+    const count = readUint16LE(buf, 9);
     // Bolt Optimization: Pre-allocate array with fixed size 'count' to avoid dynamic resizing via push()
     const updates: EntityDeltaState[] = new Array(count);
     let offset = 11;
     for (let i = 0; i < count; i++) {
-      const idLen = view.getUint16(offset, true);
+      const idLen = readUint16LE(buf, offset);
       offset += 2;
       // Bolt Optimization: Use fast ASCII string decoding helper
       const id = decodeString(buf, offset, idLen);
       offset += idLen;
       
-      const mask = view.getUint8(offset);
+      const mask = buf[offset];
       offset += 1;
       
       const update: EntityDeltaState = { id };
       if ((mask & 1) !== 0) {
-        update.x = view.getFloat32(offset, true);
+        update.x = readFloat32LE(buf, offset);
         offset += 4;
       }
       if ((mask & 2) !== 0) {
-        update.y = view.getFloat32(offset, true);
+        update.y = readFloat32LE(buf, offset);
         offset += 4;
       }
       updates[i] = update;
