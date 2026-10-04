@@ -27,3 +27,8 @@
 
 **Learning:** Passing `buf.subarray(offset, offset + len)` into `TextEncoder.prototype.encodeInto()` inside high-frequency serialization loops creates temporary Uint8Array view objects for every string field on every tick (30Hz), generating GC pressure and redundant byte length recalculations.
 **Action:** Use an inline ASCII string encoder that writes character codes directly into the destination buffer byte-by-byte for ASCII strings, falling back to `encodeInto` only when non-ASCII bytes are encountered.
+
+## 2026-09-07 - Maintain incremental state counters and bounded sample buffers for API metrics endpoints
+
+**Learning:** Iterating over all lifetime objects in a Map and sorting historical numeric samples (e.g. ticket wait times) on every 1-second HTTP metrics request degrades endpoint latency from O(1) to O(N log N) as the system processes thousands of items over time.
+**Action:** Maintain incremental state counters on object creation/transition and accumulate metrics samples in a bounded rolling buffer (e.g. max 200 items) to keep metrics calculations O(1).
