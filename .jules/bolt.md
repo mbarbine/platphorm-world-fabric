@@ -32,3 +32,8 @@
 
 **Learning:** Iterating over all lifetime objects in a Map and sorting historical numeric samples (e.g. ticket wait times) on every 1-second HTTP metrics request degrades endpoint latency from O(1) to O(N log N) as the system processes thousands of items over time.
 **Action:** Maintain incremental state counters on object creation/transition and accumulate metrics samples in a bounded rolling buffer (e.g. max 200 items) to keep metrics calculations O(1).
+
+## 2026-09-08 - Replace DataView allocations with direct bitwise byte operations and module-scoped scratch buffers
+
+**Learning:** Creating `new DataView(buf.buffer)` on every binary packet encode/decode operation in hot network loops (30Hz snapshots/inputs) creates hundreds of thousands of heap-allocated wrapper objects per second, adding ~42% serialization overhead and heavy GC pressure.
+**Action:** Use inline bitwise operations for little-endian integer reads/writes and a module-scoped 8-byte `ArrayBuffer` with `Float32Array`/`Uint8Array` views for floating-point bit conversions.
