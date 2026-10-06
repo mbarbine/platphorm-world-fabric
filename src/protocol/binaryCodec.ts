@@ -3,6 +3,7 @@ import { AnyMessage, MessageType, EntityState, EntityDeltaState } from './messag
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+
 /**
  * Bolt Optimization: Reusable module-scoped scratch buffer and typed array views for fast float/double
  * byte conversions without allocating temporary DataView objects on every packet (~42% speedup, zero GC heap allocation).
