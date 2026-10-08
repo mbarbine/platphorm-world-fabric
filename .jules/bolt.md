@@ -37,3 +37,8 @@
 
 **Learning:** Creating `new DataView(buf.buffer)` on every binary packet encode/decode operation in hot network loops (30Hz snapshots/inputs) creates hundreds of thousands of heap-allocated wrapper objects per second, adding ~42% serialization overhead and heavy GC pressure.
 **Action:** Use inline bitwise operations for little-endian integer reads/writes and a module-scoped 8-byte `ArrayBuffer` with `Float32Array`/`Uint8Array` views for floating-point bit conversions.
+
+## 2026-09-09 - Avoid caching handler array lengths in event dispatch loops where callbacks may unsubscribe
+
+**Learning:** Caching `handlers.length` in a `for` loop before invoking callbacks (e.g. `messageHandlers[i](data)`) causes a runtime `TypeError: handler is not a function` if an event listener unsubscribes or mutates the handler array mid-dispatch.
+**Action:** Keep standard `for...of` loops or evaluate `.length` dynamically on dynamic callback arrays during event iteration.
