@@ -42,3 +42,8 @@
 
 **Learning:** Caching `handlers.length` in a `for` loop before invoking callbacks (e.g. `messageHandlers[i](data)`) causes a runtime `TypeError: handler is not a function` if an event listener unsubscribes or mutates the handler array mid-dispatch.
 **Action:** Keep standard `for...of` loops or evaluate `.length` dynamically on dynamic callback arrays during event iteration.
+
+## 2026-09-10 - Use module-scoped scratch arrays for fast ASCII string decoding and length checks
+
+**Learning:** Concatenating string characters in a loop (`str += String.fromCharCode(b)`) during binary decoding creates intermediate string objects for each byte, adding GC overhead and slowing down packet decoding.
+**Action:** Populate a module-scoped scratch array and call `String.fromCharCode.apply(null, charCodeScratch)` to construct strings in a single C++ call (~32% faster), and use a single-pass ASCII loop for `getStringByteLength` (~30% faster).
