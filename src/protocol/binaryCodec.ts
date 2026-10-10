@@ -13,6 +13,22 @@ const scratchF32 = new Float32Array(scratchBuf);
 const scratchF64 = new Float64Array(scratchBuf);
 const scratchU8 = new Uint8Array(scratchBuf);
 
+/**
+ * Bolt Optimization: Reusable module-scoped output buffer to avoid redundant sizing loops in hot encoding paths.
+ * Dynamically resizes if packet payload exceeds current capacity, guaranteeing protocol safety and single-pass speedup.
+ */
+let outputScratch = new Uint8Array(65536);
+
+function ensureScratchCapacity(minCapacity: number) {
+  if (outputScratch.length < minCapacity) {
+    let newCap = outputScratch.length * 2;
+    while (newCap < minCapacity) newCap *= 2;
+    const newBuf = new Uint8Array(newCap);
+    newBuf.set(outputScratch);
+    outputScratch = newBuf;
+  }
+}
+
 function writeUint16LE(buf: Uint8Array, offset: number, val: number) {
   buf[offset] = val;
   buf[offset + 1] = val >> 8;
@@ -187,69 +203,53 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
 
   if (msg.type === MessageType.Snapshot) {
     const count = msg.entities.length;
-    // Variable length
-    let size = 1 + 4 + 2; // type + tick + count
-    // Bolt: Use fast string byte length calculation to avoid allocating intermediate Uint8Arrays per entity ID
-    for (let i = 0; i < count; i++) {
-      size += 2 + getStringByteLength(msg.entities[i].id) + 4 + 4; // idLength + idBytes + x + y
-    }
-
-    const buf = new Uint8Array(size);
-    buf[0] = msg.type;
-    writeUint32LE(buf, 1, msg.serverTick);
-    writeUint16LE(buf, 5, count);
+    outputScratch[0] = msg.type;
+    writeUint32LE(outputScratch, 1, msg.serverTick);
+    writeUint16LE(outputScratch, 5, count);
     
     let offset = 7;
     for (let i = 0; i < count; i++) {
       const e = msg.entities[i];
-      // Bolt Optimization: Use fast inline ASCII string encoder to write directly into target buffer
-      // without allocating Uint8Array subarray views or making redundant byte length recalculations.
-      const written = encodeStringInto(e.id, buf, offset + 2);
-      writeUint16LE(buf, offset, written);
+      // Ensure buffer capacity for current entity (id length up to ~512 bytes + fields)
+      ensureScratchCapacity(offset + 2 + e.id.length * 3 + 8);
+      // Bolt Optimization: Single-pass encoding into module-scoped output buffer eliminates pre-pass string length calculations.
+      const written = encodeStringInto(e.id, outputScratch, offset + 2);
+      writeUint16LE(outputScratch, offset, written);
       offset += 2 + written;
-      writeFloat32LE(buf, offset, e.x);
-      writeFloat32LE(buf, offset + 4, e.y);
+      writeFloat32LE(outputScratch, offset, e.x);
+      writeFloat32LE(outputScratch, offset + 4, e.y);
       offset += 8;
     }
-    return buf;
+    return outputScratch.slice(0, offset);
   }
 
   if (msg.type === MessageType.EntityDelta) {
     const count = msg.updates.length;
-    let size = 1 + 4 + 4 + 2; // type + serverTick + baselineTick + count
-    // Bolt: Use fast string byte length calculation to avoid allocating intermediate Uint8Arrays per update ID
-    for (let i = 0; i < count; i++) {
-      const u = msg.updates[i];
-      size += 2 + getStringByteLength(u.id) + 1; // idLen + idBytes + bitmask
-      if (u.x !== undefined) size += 4;
-      if (u.y !== undefined) size += 4;
-    }
-
-    const buf = new Uint8Array(size);
-    buf[0] = msg.type;
-    writeUint32LE(buf, 1, msg.serverTick);
-    writeUint32LE(buf, 5, msg.baselineTick);
-    writeUint16LE(buf, 9, count);
+    outputScratch[0] = msg.type;
+    writeUint32LE(outputScratch, 1, msg.serverTick);
+    writeUint32LE(outputScratch, 5, msg.baselineTick);
+    writeUint16LE(outputScratch, 9, count);
     
     let offset = 11;
     for (let i = 0; i < count; i++) {
       const u = msg.updates[i];
-      // Bolt Optimization: Use fast inline ASCII string encoder to write directly into target buffer
-      // without allocating Uint8Array subarray views or making redundant byte length recalculations.
-      const written = encodeStringInto(u.id, buf, offset + 2);
-      writeUint16LE(buf, offset, written);
+      // Ensure buffer capacity for current update (id length up to ~512 bytes + fields)
+      ensureScratchCapacity(offset + 2 + u.id.length * 3 + 9);
+      // Bolt Optimization: Single-pass encoding into module-scoped output buffer eliminates pre-pass string length calculations.
+      const written = encodeStringInto(u.id, outputScratch, offset + 2);
+      writeUint16LE(outputScratch, offset, written);
       offset += 2 + written;
 
       let mask = 0;
       if (u.x !== undefined) mask |= 1;
       if (u.y !== undefined) mask |= 2;
-      buf[offset] = mask;
+      outputScratch[offset] = mask;
       offset += 1;
 
-      if (u.x !== undefined) { writeFloat32LE(buf, offset, u.x); offset += 4; }
-      if (u.y !== undefined) { writeFloat32LE(buf, offset, u.y); offset += 4; }
+      if (u.x !== undefined) { writeFloat32LE(outputScratch, offset, u.x); offset += 4; }
+      if (u.y !== undefined) { writeFloat32LE(outputScratch, offset, u.y); offset += 4; }
     }
-    return buf;
+    return outputScratch.slice(0, offset);
   }
 
   // Fallback indicator
