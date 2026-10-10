@@ -47,3 +47,8 @@
 
 **Learning:** Concatenating string characters in a loop (`str += String.fromCharCode(b)`) during binary decoding creates intermediate string objects for each byte, adding GC overhead and slowing down packet decoding.
 **Action:** Populate a module-scoped scratch array and call `String.fromCharCode.apply(null, charCodeScratch)` to construct strings in a single C++ call (~32% faster), and use a single-pass ASCII loop for `getStringByteLength` (~30% faster).
+
+## 2026-09-11 - Single-pass binary snapshot encoding with resizable scratch buffer
+
+**Learning:** Pre-calculating binary message buffer sizes by iterating over all entities and evaluating string byte lengths before allocation introduces a 2x loop pass overhead per replication tick (30Hz).
+**Action:** Encode binary snapshot and delta messages directly into a resizable module-scoped `outputScratch` buffer in a single pass, then return `outputScratch.slice(0, offset)` (~25% speedup).
