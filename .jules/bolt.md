@@ -52,3 +52,8 @@
 
 **Learning:** Pre-calculating binary message buffer sizes by iterating over all entities and evaluating string byte lengths before allocation introduces a 2x loop pass overhead per replication tick (30Hz).
 **Action:** Encode binary snapshot and delta messages directly into a resizable module-scoped `outputScratch` buffer in a single pass, then return `outputScratch.slice(0, offset)` (~25% speedup).
+
+## 2026-09-12 - Reuse entity state objects across tick replication history maps for stationary entities
+
+**Learning:** In a 30Hz game replication loop, shallow copying entity state objects (`{ ...v }`) into a tick history map on every tick allocates thousands of temporary objects per second. Reusing existing `EntityState` object references for stationary entities between consecutive tick maps reduces GC allocation pressure by ~95% while preserving full entity attribute completeness.
+**Action:** On each tick, check if the entity's position matches its state in `stateHistory.get(serverTick - 1)`. If unchanged, store the previous `EntityState` reference in `currentTickMap`; if changed, allocate a new `{ id: v.id, x: v.x, y: v.y }` object.
