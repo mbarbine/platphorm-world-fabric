@@ -329,6 +329,9 @@ export default function App() {
   const pingSamplesRef = useRef<number[]>([]);
   const messagesCountRef = useRef(0);
   const lastSnapshotRef = useRef<number>(performance.now());
+  // Bolt Optimization: Record snapshot interval timing in a ref and dispatch setTickDuration
+  // once per second in statsInterval instead of 30 times/sec in the hot snapshot handler.
+  const tickDurationRef = useRef<number>(0);
   const highestTickRef = useRef<number>(0);
   const totalExpectedRef = useRef<number>(0);
   const totalReceivedRef = useRef<number>(0);
@@ -428,7 +431,8 @@ export default function App() {
           } else if (msg.type === MessageType.Snapshot) {
             setEntities(msg.entities);
             const now = performance.now();
-            setTickDuration(now - lastSnapshotRef.current);
+            // Bolt Optimization: Record latest tick duration in ref to defer state update to 1-second stats poll
+            tickDurationRef.current = now - lastSnapshotRef.current;
             lastSnapshotRef.current = now;
 
             if (highestTickRef.current === 0) {
@@ -476,6 +480,7 @@ export default function App() {
     const statsInterval = setInterval(() => {
       setMessagesReceived(messagesCountRef.current);
       messagesCountRef.current = 0;
+      setTickDuration(tickDurationRef.current);
 
       if (totalExpectedRef.current > 0) {
         const loss = Math.max(0, totalExpectedRef.current - totalReceivedRef.current) / totalExpectedRef.current;

@@ -57,3 +57,8 @@
 
 **Learning:** In a 30Hz game replication loop, shallow copying entity state objects (`{ ...v }`) into a tick history map on every tick allocates thousands of temporary objects per second. Reusing existing `EntityState` object references for stationary entities between consecutive tick maps reduces GC allocation pressure by ~95% while preserving full entity attribute completeness.
 **Action:** On each tick, check if the entity's position matches its state in `stateHistory.get(serverTick - 1)`. If unchanged, store the previous `EntityState` reference in `currentTickMap`; if changed, allocate a new `{ id: v.id, x: v.x, y: v.y }` object.
+
+## 2026-09-13 - Defer high-frequency telemetry metric state updates to 1-second poll loop
+
+**Learning:** Invoking React state setters for secondary telemetry metrics (such as update interval duration) inside high-frequency (30Hz) network message handlers creates 30 extra React state updates per second, thrashing component state dispatches.
+**Action:** Record telemetry metrics in `useRef` instances inside high-frequency event handlers, then batch state updates once per second in `statsInterval`.
