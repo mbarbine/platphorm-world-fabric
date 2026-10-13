@@ -62,3 +62,8 @@
 
 **Learning:** Invoking React state setters for secondary telemetry metrics (such as update interval duration) inside high-frequency (30Hz) network message handlers creates 30 extra React state updates per second, thrashing component state dispatches.
 **Action:** Record telemetry metrics in `useRef` instances inside high-frequency event handlers, then batch state updates once per second in `statsInterval`.
+
+## 2026-09-14 - Memoize dashboard sidebar sections to prevent VDOM reconciliation during 30Hz game state replication
+
+**Learning:** When game entity state updates top-level App component state at 30Hz, defining dashboard sidebar sections inline inside the top-level App component causes React to re-evaluate and reconcile VDOM for all sidebar panels and charts on every frame, even though telemetry metrics and event logs only update once per second or when system events occur.
+**Action:** Extract sidebar panel trees into dedicated module-scoped `React.memo` components (`DiagnosticsSection`, `TelemetrySection`, `MatchmakingSection`, `EventLogSection`) so React skips VDOM reconciliation for ~95% of the sidebar component tree across 29 out of 30 frames per second.

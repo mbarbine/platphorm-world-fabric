@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, memo, RefObject } from 'react';
 import { AnyMessage, MessageType, Snapshot, EntityState } from './protocol/messages';
 import { encodeMessage, decodeMessage } from './protocol/binaryCodec';
 import { SmartClientTransport } from './transport/ClientTransport';
@@ -199,6 +199,189 @@ interface RegionalMetric {
   p95LatencyMs: number;
 }
 
+// Bolt Optimization: Extract and memoize sidebar panel components at module scope.
+// Parent App updates state at 30Hz due to incoming game replication snapshots.
+// Wrapping these sidebar components in React.memo skips VDOM reconciliation and DOM diffing
+// on 29 out of 30 frames/sec when stats and event logs are unchanged between 1s intervals.
+
+const DiagnosticsSection = memo(function DiagnosticsSection({
+  connectionStatus,
+  pingMs,
+  packetLoss,
+  transportType,
+  clientId
+}: {
+  connectionStatus: string;
+  pingMs: number;
+  packetLoss: number;
+  transportType: string;
+  clientId: string | null;
+}) {
+  return (
+    <section className="flex flex-col border-b border-white/5">
+      <div className="p-4 border-b border-white/5 bg-[#14161C]">
+        <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Diagnostics</h2>
+        <p className="text-[9px] font-mono text-gray-600">CONNECTION STATE</p>
+      </div>
+
+      <div className="p-4 space-y-3">
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Status</span>
+          <span className={`text-xs font-mono font-bold ${connectionStatus === 'Connected' ? 'text-[#00FF41]' : 'text-yellow-500'}`}>
+            {connectionStatus.toUpperCase()}
+          </span>
+        </div>
+
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Quality</span>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-mono font-bold ${
+              getConnectionQuality(pingMs, packetLoss) === 'Good' ? 'text-[#00FF41]' :
+              getConnectionQuality(pingMs, packetLoss) === 'Fair' ? 'text-yellow-500' : 'text-red-500'
+            }`}>
+              {getConnectionQuality(pingMs, packetLoss).toUpperCase()}
+            </span>
+            <ConnectionQualityBars quality={getConnectionQuality(pingMs, packetLoss)} />
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Transport</span>
+          <span className="text-xs font-mono text-white">{transportType.toUpperCase()}</span>
+        </div>
+
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Ping (RTT)</span>
+          <span className="text-xs font-mono text-white">{Math.round(pingMs)} ms</span>
+        </div>
+
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Client ID</span>
+          <span className="text-xs font-mono text-white">{clientId || 'N/A'}</span>
+        </div>
+      </div>
+    </section>
+  );
+});
+
+const TelemetrySection = memo(function TelemetrySection({
+  tickDuration,
+  messagesReceived,
+  packetLoss,
+  packetLossHistory,
+  latencyHistory,
+  entitiesCount
+}: {
+  tickDuration: number;
+  messagesReceived: number;
+  packetLoss: number;
+  packetLossHistory: { time: string; loss: number }[];
+  latencyHistory: { time: string; p95: number }[];
+  entitiesCount: number;
+}) {
+  return (
+    <section className="flex flex-col border-b border-white/5">
+      <div className="p-4 border-b border-white/5 bg-[#14161C]">
+        <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Telemetry</h2>
+        <p className="text-[9px] font-mono text-gray-600">HOT LANE REPLICATION</p>
+      </div>
+
+      <div className="p-4 space-y-3">
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Update Interval (ms)</span>
+          <span className="text-xs font-mono text-white">{Math.round(tickDuration)}</span>
+        </div>
+
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Messages/sec</span>
+          <span className="text-xs font-mono text-white">{messagesReceived}</span>
+        </div>
+
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Packet Loss</span>
+          <span className={`text-xs font-mono font-bold ${packetLoss > 0 ? 'text-red-500' : 'text-[#00FF41]'}`}>
+            {packetLoss.toFixed(1)}%
+          </span>
+        </div>
+
+        <div className="h-16 w-full mt-2">
+          <PacketLossChart data={packetLossHistory} loss={packetLoss} />
+        </div>
+
+        <div className="flex justify-between items-center mt-2">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">P95 Latency</span>
+          <span className="text-xs font-mono text-white">
+            {latencyHistory.length > 0 ? Math.round(latencyHistory[latencyHistory.length - 1].p95) : 0} ms
+          </span>
+        </div>
+
+        <div className="h-16 w-full mt-2">
+          <LatencyChart data={latencyHistory} />
+        </div>
+
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Active Entities</span>
+          <span className="text-xs font-mono text-white">{entitiesCount}</span>
+        </div>
+      </div>
+    </section>
+  );
+});
+
+const MatchmakingSection = memo(function MatchmakingSection({
+  matchmakingHistory
+}: {
+  matchmakingHistory: { time: string; queueDepth: number; p95: number; allocated: number; failed: number }[];
+}) {
+  return (
+    <section className="flex flex-col border-b border-white/5">
+      <div className="p-4 border-b border-white/5 bg-[#14161C]">
+        <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Matchmaking</h2>
+        <p className="text-[9px] font-mono text-gray-600">CAPACITY & ALLOCATION</p>
+      </div>
+
+      <div className="p-4 space-y-3">
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">Queue Depth</span>
+          <span className="text-xs font-mono text-white">
+            {matchmakingHistory.length > 0 ? matchmakingHistory[matchmakingHistory.length - 1].queueDepth : 0}
+          </span>
+        </div>
+
+        <div className="h-12 w-full">
+          <QueueDepthChart data={matchmakingHistory} />
+        </div>
+
+        <div className="flex justify-between items-center mt-2">
+          <span className="text-[10px] font-mono text-gray-500 uppercase">P95 Wait Time</span>
+          <span className="text-xs font-mono text-white">
+            {matchmakingHistory.length > 0 ? Math.round(matchmakingHistory[matchmakingHistory.length - 1].p95) : 0} ms
+          </span>
+        </div>
+
+        <div className="h-12 w-full">
+          <P95WaitTimeChart data={matchmakingHistory} />
+        </div>
+
+        <div className="pt-2 border-t border-white/5">
+          <div className="flex justify-between items-center mb-1">
+            <span className="text-[10px] font-mono text-gray-500 uppercase">Allocated</span>
+            <span className="text-xs font-mono text-[#00FF41]">
+              {matchmakingHistory.length > 0 ? matchmakingHistory[matchmakingHistory.length - 1].allocated : 0}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[10px] font-mono text-gray-500 uppercase">Failed</span>
+            <span className="text-xs font-mono text-red-500">
+              {matchmakingHistory.length > 0 ? matchmakingHistory[matchmakingHistory.length - 1].failed : 0}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+});
+
 // Bolt Optimization: Extract and memoize RegionalOverview component and useMemo for region filtering at module scope.
 // During 30Hz game state replication updates, parent App component re-renders 30 times/sec.
 // Defining RegionalOverview at module scope with React.memo prevents component remounting, state wiping, and DOM table diffing on every 30Hz tick.
@@ -253,6 +436,41 @@ const RegionalOverview = memo(function RegionalOverview({ regionalMetrics }: { r
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+});
+
+const EventLogSection = memo(function EventLogSection({
+  eventLog,
+  logEndRef
+}: {
+  eventLog: LogEvent[];
+  logEndRef: RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <section className="flex flex-col flex-1 min-h-0 border-t border-white/5">
+      <div className="p-4 border-b border-white/5 bg-[#14161C] shrink-0">
+        <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Event Log</h2>
+        <p className="text-[9px] font-mono text-gray-600">SYSTEM EVENTS</p>
+      </div>
+
+      <div className="p-4 flex-1 overflow-y-auto space-y-2">
+        {eventLog.map(log => (
+          <div key={log.id} className="flex gap-3 text-xs font-mono">
+            <span className="text-gray-500 shrink-0">
+              {log.timestamp.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+            <span className={`break-words ${
+              log.type === 'error' ? 'text-red-400' :
+              log.type === 'success' ? 'text-[#00FF41]' :
+              'text-gray-300'
+            }`}>
+              {log.message}
+            </span>
+          </div>
+        ))}
+        <div ref={logEndRef} />
       </div>
     </section>
   );
@@ -697,168 +915,33 @@ export default function App() {
         </div>
 
         <div className="lg:col-span-3 bg-[#0D0F14] flex flex-col overflow-y-auto">
-          <section className="flex flex-col border-b border-white/5">
-            <div className="p-4 border-b border-white/5 bg-[#14161C]">
-              <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Diagnostics</h2>
-              <p className="text-[9px] font-mono text-gray-600">CONNECTION STATE</p>
-            </div>
-            
-            <div className="p-4 space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Status</span>
-                <span className={`text-xs font-mono font-bold ${connectionStatus === 'Connected' ? 'text-[#00FF41]' : 'text-yellow-500'}`}>
-                  {connectionStatus.toUpperCase()}
-                </span>
-              </div>
+          <DiagnosticsSection
+            connectionStatus={connectionStatus}
+            pingMs={pingMs}
+            packetLoss={packetLoss}
+            transportType={transportType}
+            clientId={clientId}
+          />
 
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Quality</span>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-mono font-bold ${
-                    getConnectionQuality(pingMs, packetLoss) === 'Good' ? 'text-[#00FF41]' : 
-                    getConnectionQuality(pingMs, packetLoss) === 'Fair' ? 'text-yellow-500' : 'text-red-500'
-                  }`}>
-                    {getConnectionQuality(pingMs, packetLoss).toUpperCase()}
-                  </span>
-                  <ConnectionQualityBars quality={getConnectionQuality(pingMs, packetLoss)} />
-                </div>
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Transport</span>
-                <span className="text-xs font-mono text-white">{transportType.toUpperCase()}</span>
-              </div>
+          <TelemetrySection
+            tickDuration={tickDuration}
+            messagesReceived={messagesReceived}
+            packetLoss={packetLoss}
+            packetLossHistory={packetLossHistory}
+            latencyHistory={latencyHistory}
+            entitiesCount={entities.length}
+          />
 
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Ping (RTT)</span>
-                <span className="text-xs font-mono text-white">{Math.round(pingMs)} ms</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Client ID</span>
-                <span className="text-xs font-mono text-white">{clientId || 'N/A'}</span>
-              </div>
-            </div>
-          </section>
-
-          <section className="flex flex-col border-b border-white/5">
-            <div className="p-4 border-b border-white/5 bg-[#14161C]">
-              <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Telemetry</h2>
-              <p className="text-[9px] font-mono text-gray-600">HOT LANE REPLICATION</p>
-            </div>
-            
-            <div className="p-4 space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Update Interval (ms)</span>
-                <span className="text-xs font-mono text-white">{Math.round(tickDuration)}</span>
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Messages/sec</span>
-                <span className="text-xs font-mono text-white">{messagesReceived}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Packet Loss</span>
-                <span className={`text-xs font-mono font-bold ${packetLoss > 0 ? 'text-red-500' : 'text-[#00FF41]'}`}>
-                  {packetLoss.toFixed(1)}%
-                </span>
-              </div>
-              
-              <div className="h-16 w-full mt-2">
-                <PacketLossChart data={packetLossHistory} loss={packetLoss} />
-              </div>
-
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">P95 Latency</span>
-                <span className="text-xs font-mono text-white">
-                  {latencyHistory.length > 0 ? Math.round(latencyHistory[latencyHistory.length - 1].p95) : 0} ms
-                </span>
-              </div>
-
-              <div className="h-16 w-full mt-2">
-                <LatencyChart data={latencyHistory} />
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Active Entities</span>
-                <span className="text-xs font-mono text-white">{entities.length}</span>
-              </div>
-            </div>
-          </section>
-
-          <section className="flex flex-col border-b border-white/5">
-            <div className="p-4 border-b border-white/5 bg-[#14161C]">
-              <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Matchmaking</h2>
-              <p className="text-[9px] font-mono text-gray-600">CAPACITY & ALLOCATION</p>
-            </div>
-            
-            <div className="p-4 space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">Queue Depth</span>
-                <span className="text-xs font-mono text-white">
-                  {matchmakingHistory.length > 0 ? matchmakingHistory[matchmakingHistory.length - 1].queueDepth : 0}
-                </span>
-              </div>
-              
-              <div className="h-12 w-full">
-                <QueueDepthChart data={matchmakingHistory} />
-              </div>
-
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-[10px] font-mono text-gray-500 uppercase">P95 Wait Time</span>
-                <span className="text-xs font-mono text-white">
-                  {matchmakingHistory.length > 0 ? Math.round(matchmakingHistory[matchmakingHistory.length - 1].p95) : 0} ms
-                </span>
-              </div>
-
-              <div className="h-12 w-full">
-                <P95WaitTimeChart data={matchmakingHistory} />
-              </div>
-
-              <div className="pt-2 border-t border-white/5">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] font-mono text-gray-500 uppercase">Allocated</span>
-                  <span className="text-xs font-mono text-[#00FF41]">
-                    {matchmakingHistory.length > 0 ? matchmakingHistory[matchmakingHistory.length - 1].allocated : 0}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-mono text-gray-500 uppercase">Failed</span>
-                  <span className="text-xs font-mono text-red-500">
-                    {matchmakingHistory.length > 0 ? matchmakingHistory[matchmakingHistory.length - 1].failed : 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </section>
+          <MatchmakingSection
+            matchmakingHistory={matchmakingHistory}
+          />
 
           <RegionalOverview regionalMetrics={regionalMetrics} />
 
-          <section className="flex flex-col flex-1 min-h-0 border-t border-white/5">
-            <div className="p-4 border-b border-white/5 bg-[#14161C] shrink-0">
-              <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Event Log</h2>
-              <p className="text-[9px] font-mono text-gray-600">SYSTEM EVENTS</p>
-            </div>
-            
-            <div className="p-4 flex-1 overflow-y-auto space-y-2">
-              {eventLog.map(log => (
-                <div key={log.id} className="flex gap-3 text-xs font-mono">
-                  <span className="text-gray-500 shrink-0">
-                    {log.timestamp.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                  <span className={`break-words ${
-                    log.type === 'error' ? 'text-red-400' :
-                    log.type === 'success' ? 'text-[#00FF41]' :
-                    'text-gray-300'
-                  }`}>
-                    {log.message}
-                  </span>
-                </div>
-              ))}
-              <div ref={logEndRef} />
-            </div>
-          </section>
+          <EventLogSection
+            eventLog={eventLog}
+            logEndRef={logEndRef}
+          />
         </div>
       </div>
       )}
