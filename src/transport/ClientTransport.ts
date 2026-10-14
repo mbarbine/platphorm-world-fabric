@@ -27,13 +27,17 @@ export class WebSocketClientTransport implements ClientTransport {
       };
       
       this.ws.onmessage = (event) => {
-        // Assume text or blob/arraybuffer
-        for (const h of this.messageHandlers) h(event.data);
+        // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
+        for (let i = 0; i < this.messageHandlers.length; i++) {
+          this.messageHandlers[i](event.data);
+        }
       };
 
       this.ws.onclose = () => {
         this.status = 'Disconnected';
-        for (const h of this.closeHandlers) h();
+        for (let i = 0; i < this.closeHandlers.length; i++) {
+          this.closeHandlers[i]();
+        }
       };
       
       this.ws.onerror = (err) => {
@@ -105,11 +109,16 @@ export class WebRTCClientTransport implements ClientTransport {
             resolve();
           };
           this.dataChannel.onmessage = (event) => {
-            for (const h of this.messageHandlers) h(event.data);
+            // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
+            for (let i = 0; i < this.messageHandlers.length; i++) {
+              this.messageHandlers[i](event.data);
+            }
           };
           this.dataChannel.onclose = () => {
             this.status = 'Disconnected';
-            for (const h of this.closeHandlers) h();
+            for (let i = 0; i < this.closeHandlers.length; i++) {
+              this.closeHandlers[i]();
+            }
           };
           
           this.peerConn.onicecandidate = (event) => {
@@ -209,10 +218,15 @@ export class SmartClientTransport implements ClientTransport {
     }
 
     this.activeTransport.onMessage(data => {
-      for (const h of this.messageHandlers) h(data);
+      // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
+      for (let i = 0; i < this.messageHandlers.length; i++) {
+        this.messageHandlers[i](data);
+      }
     });
     this.activeTransport.onClose(() => {
-      for (const h of this.closeHandlers) h();
+      for (let i = 0; i < this.closeHandlers.length; i++) {
+        this.closeHandlers[i]();
+      }
     });
   }
 
