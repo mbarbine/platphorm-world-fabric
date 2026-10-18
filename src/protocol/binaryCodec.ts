@@ -1,4 +1,4 @@
-import { AnyMessage, MessageType, EntityState, EntityDeltaState } from './messages.js';
+import { AnyMessage, MessageType, EntityState, EntityDeltaState } from "./messages.js";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -261,105 +261,122 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   return buf;
 }
 
+function decodeFallback(buf: Uint8Array): AnyMessage {
+  const str = textDecoder.decode(buf.subarray(1));
+  return JSON.parse(str);
+}
+
+function decodeInputFrame(buf: Uint8Array): AnyMessage {
+  return {
+    type: MessageType.InputFrame,
+    sequence: readUint32LE(buf, 1),
+    inputX: readFloat32LE(buf, 5),
+    inputY: readFloat32LE(buf, 9)
+  };
+}
+
+function decodePing(buf: Uint8Array): AnyMessage {
+  return {
+    type: MessageType.Ping,
+    clientTime: readFloat64LE(buf, 1)
+  };
+}
+
+function decodePong(buf: Uint8Array): AnyMessage {
+  return {
+    type: MessageType.Pong,
+    clientTime: readFloat64LE(buf, 1),
+    serverTime: readFloat64LE(buf, 9)
+  };
+}
+
+function decodeSnapshotAck(buf: Uint8Array): AnyMessage {
+  return {
+    type: MessageType.SnapshotAck,
+    serverTick: readUint32LE(buf, 1)
+  };
+}
+
+function decodeSnapshot(buf: Uint8Array): AnyMessage {
+  const serverTick = readUint32LE(buf, 1);
+  const count = readUint16LE(buf, 5);
+  // Bolt Optimization: Pre-allocate array with fixed size "count" to avoid dynamic resizing via push()
+  const entities: EntityState[] = new Array(count);
+  let offset = 7;
+  for (let i = 0; i < count; i++) {
+    const idLen = readUint16LE(buf, offset);
+    offset += 2;
+    // Bolt Optimization: Use fast ASCII string decoding helper
+    const id = decodeString(buf, offset, idLen);
+    offset += idLen;
+    const x = readFloat32LE(buf, offset);
+    const y = readFloat32LE(buf, offset + 4);
+    offset += 8;
+    entities[i] = { id, x, y };
+  }
+  return {
+    type: MessageType.Snapshot,
+    serverTick,
+    entities
+  };
+}
+
+function decodeEntityDelta(buf: Uint8Array): AnyMessage {
+  const serverTick = readUint32LE(buf, 1);
+  const baselineTick = readUint32LE(buf, 5);
+  const count = readUint16LE(buf, 9);
+  // Bolt Optimization: Pre-allocate array with fixed size "count" to avoid dynamic resizing via push()
+  const updates: EntityDeltaState[] = new Array(count);
+  let offset = 11;
+  for (let i = 0; i < count; i++) {
+    const idLen = readUint16LE(buf, offset);
+    offset += 2;
+    // Bolt Optimization: Use fast ASCII string decoding helper
+    const id = decodeString(buf, offset, idLen);
+    offset += idLen;
+
+    const mask = buf[offset];
+    offset += 1;
+
+    const update: EntityDeltaState = { id };
+    if ((mask & 1) !== 0) {
+      update.x = readFloat32LE(buf, offset);
+      offset += 4;
+    }
+    if ((mask & 2) !== 0) {
+      update.y = readFloat32LE(buf, offset);
+      offset += 4;
+    }
+    updates[i] = update;
+  }
+  return {
+    type: MessageType.EntityDelta,
+    serverTick,
+    baselineTick,
+    updates
+  };
+}
+
 export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
   const type = buf[0];
 
-  if (type === 0xFF) {
-    const str = textDecoder.decode(buf.subarray(1));
-    return JSON.parse(str);
+  switch (type) {
+    case 0xFF:
+      return decodeFallback(buf);
+    case MessageType.InputFrame:
+      return decodeInputFrame(buf);
+    case MessageType.Ping:
+      return decodePing(buf);
+    case MessageType.Pong:
+      return decodePong(buf);
+    case MessageType.SnapshotAck:
+      return decodeSnapshotAck(buf);
+    case MessageType.Snapshot:
+      return decodeSnapshot(buf);
+    case MessageType.EntityDelta:
+      return decodeEntityDelta(buf);
+    default:
+      throw new Error("Unknown message type: " + type);
   }
-
-  if (type === MessageType.InputFrame) {
-    return {
-      type: MessageType.InputFrame,
-      sequence: readUint32LE(buf, 1),
-      inputX: readFloat32LE(buf, 5),
-      inputY: readFloat32LE(buf, 9)
-    };
-  }
-  
-  if (type === MessageType.Ping) {
-    return {
-      type: MessageType.Ping,
-      clientTime: readFloat64LE(buf, 1)
-    };
-  }
-
-  if (type === MessageType.Pong) {
-    return {
-      type: MessageType.Pong,
-      clientTime: readFloat64LE(buf, 1),
-      serverTime: readFloat64LE(buf, 9)
-    };
-  }
-
-  if (type === MessageType.SnapshotAck) {
-    return {
-      type: MessageType.SnapshotAck,
-      serverTick: readUint32LE(buf, 1)
-    };
-  }
-
-  if (type === MessageType.Snapshot) {
-    const serverTick = readUint32LE(buf, 1);
-    const count = readUint16LE(buf, 5);
-    // Bolt Optimization: Pre-allocate array with fixed size 'count' to avoid dynamic resizing via push()
-    const entities: EntityState[] = new Array(count);
-    let offset = 7;
-    for (let i = 0; i < count; i++) {
-      const idLen = readUint16LE(buf, offset);
-      offset += 2;
-      // Bolt Optimization: Use fast ASCII string decoding helper
-      const id = decodeString(buf, offset, idLen);
-      offset += idLen;
-      const x = readFloat32LE(buf, offset);
-      const y = readFloat32LE(buf, offset + 4);
-      offset += 8;
-      entities[i] = { id, x, y };
-    }
-    return {
-      type: MessageType.Snapshot,
-      serverTick,
-      entities
-    };
-  }
-
-  if (type === MessageType.EntityDelta) {
-    const serverTick = readUint32LE(buf, 1);
-    const baselineTick = readUint32LE(buf, 5);
-    const count = readUint16LE(buf, 9);
-    // Bolt Optimization: Pre-allocate array with fixed size 'count' to avoid dynamic resizing via push()
-    const updates: EntityDeltaState[] = new Array(count);
-    let offset = 11;
-    for (let i = 0; i < count; i++) {
-      const idLen = readUint16LE(buf, offset);
-      offset += 2;
-      // Bolt Optimization: Use fast ASCII string decoding helper
-      const id = decodeString(buf, offset, idLen);
-      offset += idLen;
-      
-      const mask = buf[offset];
-      offset += 1;
-      
-      const update: EntityDeltaState = { id };
-      if ((mask & 1) !== 0) {
-        update.x = readFloat32LE(buf, offset);
-        offset += 4;
-      }
-      if ((mask & 2) !== 0) {
-        update.y = readFloat32LE(buf, offset);
-        offset += 4;
-      }
-      updates[i] = update;
-    }
-    return {
-      type: MessageType.EntityDelta,
-      serverTick,
-      baselineTick,
-      updates
-    };
-  }
-
-  throw new Error("Unknown message type: " + type);
 }
