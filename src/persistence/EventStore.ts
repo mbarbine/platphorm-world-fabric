@@ -36,5 +36,3 @@ export class InMemoryEventStore implements EventStore {
     return this.indexByAggregate.get(aggregateId) || [];
   }
 }
-
-export const defaultEventStore = new InMemoryEventStore();
