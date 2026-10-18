@@ -9,10 +9,15 @@ class WebSocketChannel implements TransportChannel {
   constructor(private ws: WebSocket) {
     this.id = Math.random().toString(36).substring(7);
     this.ws.on('message', (data) => {
-      for (const h of this.messageHandlers) h(data as Buffer);
+      // Bolt Optimization: Indexed loop with dynamic .length avoids iterator object allocation per incoming frame
+      for (let i = 0; i < this.messageHandlers.length; i++) {
+        this.messageHandlers[i](data as Buffer);
+      }
     });
     this.ws.on('close', () => {
-      for (const h of this.closeHandlers) h();
+      for (let i = 0; i < this.closeHandlers.length; i++) {
+        this.closeHandlers[i]();
+      }
     });
   }
 
@@ -47,7 +52,9 @@ export class WebSocketTransportProvider implements TransportProvider {
   constructor(private wss: WebSocketServer) {
     this.wss.on('connection', (ws) => {
       const channel = new WebSocketChannel(ws);
-      for (const h of this.connectionHandlers) h(channel);
+      for (let i = 0; i < this.connectionHandlers.length; i++) {
+        this.connectionHandlers[i](channel);
+      }
     });
   }
 

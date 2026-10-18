@@ -67,3 +67,8 @@
 
 **Learning:** When game entity state updates top-level App component state at 30Hz, defining dashboard sidebar sections inline inside the top-level App component causes React to re-evaluate and reconcile VDOM for all sidebar panels and charts on every frame, even though telemetry metrics and event logs only update once per second or when system events occur.
 **Action:** Extract sidebar panel trees into dedicated module-scoped `React.memo` components (`DiagnosticsSection`, `TelemetrySection`, `MatchmakingSection`, `EventLogSection`) so React skips VDOM reconciliation for ~95% of the sidebar component tree across 29 out of 30 frames per second.
+
+## 2026-09-15 - Use indexed loops over callback handler arrays on high-frequency network message dispatch
+
+**Learning:** Using `for...of` loops over event callback arrays (`messageHandlers`, `closeHandlers`, `connectionHandlers`) in high-frequency network transport channels allocates an iterator object (`ArrayIterator`) on every incoming frame, increasing GC pressure under load.
+**Action:** Use standard indexed `for` loops (`for (let i = 0; i < handlers.length; i++)`) with dynamic `.length` checks for handler dispatch in network transport channels.

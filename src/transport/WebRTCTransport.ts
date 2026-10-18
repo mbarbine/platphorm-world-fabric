@@ -11,17 +11,24 @@ class WebRTCChannel implements TransportChannel {
     this.id = Math.random().toString(36).substring(7);
     if (this.dc?.onMessage?.subscribe) {
       this.dc.onMessage.subscribe((data: string | Buffer | Uint8Array) => {
-        for (const h of this.messageHandlers) h(data);
+        // Bolt Optimization: Indexed loop with dynamic .length avoids iterator object allocation per incoming frame
+        for (let i = 0; i < this.messageHandlers.length; i++) {
+          this.messageHandlers[i](data);
+        }
       });
     }
     if (this.dc?.onClose?.subscribe) {
       this.dc.onClose.subscribe(() => {
-        for (const h of this.closeHandlers) h();
+        for (let i = 0; i < this.closeHandlers.length; i++) {
+          this.closeHandlers[i]();
+        }
       });
     } else if (this.dc?.onStateChange?.subscribe) {
       this.dc.onStateChange.subscribe((state: string) => {
         if (state === 'closed') {
-          for (const h of this.closeHandlers) h();
+          for (let i = 0; i < this.closeHandlers.length; i++) {
+            this.closeHandlers[i]();
+          }
         }
       });
     }
@@ -70,7 +77,9 @@ export class WebRTCTransportProvider implements TransportProvider {
             
             pc.onDataChannel.subscribe((dc) => {
               const channel = new WebRTCChannel(dc);
-              for (const h of this.connectionHandlers) h(channel);
+              for (let i = 0; i < this.connectionHandlers.length; i++) {
+                this.connectionHandlers[i](channel);
+              }
             });
 
             pc.onIceCandidate.subscribe((candidate) => {
