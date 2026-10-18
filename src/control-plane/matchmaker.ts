@@ -1,5 +1,3 @@
-import { getLobby, Lobby } from './lobby.js';
-
 interface Ticket {
   id: string;
   lobbyId: string;
