@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { createLobby, joinLobby, getLobby } from './lobby.js';
-import { submitTicket, getTicket, getMatchmakingMetrics } from './matchmaker.js';
+import { submitTicket, getTicket, getMatchmakingMetrics, sessionAllocator } from './matchmaker.js';
 import { getRegionalMetrics } from './regions.js';
 
 export const controlPlaneRouter = Router();
@@ -26,8 +26,8 @@ controlPlaneRouter.get('/lobbies/:id', (req, res) => {
 });
 
 controlPlaneRouter.post('/matchmaking/ticket', (req, res) => {
-  const { lobbyId } = req.body;
-  const ticketId = submitTicket(lobbyId.toUpperCase());
+  const { lobbyId, region } = req.body;
+  const ticketId = submitTicket(lobbyId.toUpperCase(), region);
   res.json({ ticketId });
 });
 
@@ -43,4 +43,10 @@ controlPlaneRouter.get('/matchmaking/metrics', (req, res) => {
 
 controlPlaneRouter.get('/regions', (req, res) => {
   res.json(getRegionalMetrics());
+});
+
+controlPlaneRouter.get('/sessions/:id', (req, res) => {
+  const session = sessionAllocator.getSession(req.params.id);
+  if (!session) { res.status(404).json({ error: 'session not found' }); return; }
+  res.json(session);
 });

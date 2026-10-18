@@ -1,8 +1,17 @@
 import { getLobby, Lobby } from './lobby.js';
+import { SessionAllocator } from '../allocator/SessionAllocator.js';
+
+export const sessionAllocator = new SessionAllocator();
+sessionAllocator.registerNode("node-us-east-1", "us-east-1", 1000);
+sessionAllocator.registerNode("node-us-west-2", "us-west-2", 1000);
+sessionAllocator.registerNode("node-eu-central-1", "eu-central-1", 1000);
+sessionAllocator.registerNode("node-ap-northeast-1", "ap-northeast-1", 1000);
+sessionAllocator.registerNode("node-us-east", "us-east", 1000);
 
 interface Ticket {
   id: string;
   lobbyId: string;
+  region?: string;
   status: 'queued' | 'allocated' | 'failed';
   assignedSessionId?: string;
   workerUrl?: string;
@@ -20,11 +29,12 @@ let failedCount = 0;
 const MAX_WAIT_TIME_SAMPLES = 200;
 const recentWaitTimes: number[] = [];
 
-export function submitTicket(lobbyId: string): string {
+export function submitTicket(lobbyId: string, region: string = "us-east"): string {
   const ticketId = Math.random().toString(36).substring(7);
   tickets.set(ticketId, {
     id: ticketId,
     lobbyId,
+    region,
     status: 'queued',
     createdAt: Date.now(),
   });
@@ -47,7 +57,8 @@ function allocateTicket(ticketId: string) {
   }
   ticket.status = 'allocated';
   ticket.allocatedAt = Date.now();
-  ticket.assignedSessionId = "session_" + Math.random().toString(36).substring(7);
+  const session = sessionAllocator.requestSession(ticket.region || "us-east");
+  ticket.assignedSessionId = session.id;
   // Do not hardcode localhost. An empty workerUrl will tell the client to use its current host.
   ticket.workerUrl = "";
 
