@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { WebSocket } from 'ws';
+import { RTCPeerConnection } from 'werift';
 import { SmartClientTransport } from '../../src/transport/ClientTransport';
 import { encodeMessage, decodeMessage } from '../../src/protocol/binaryCodec';
 import { MessageType, AnyMessage, Snapshot } from '../../src/protocol/messages';
 
-// Polyfill WebSocket for Node.js test environment
+// Polyfill WebSocket and RTCPeerConnection for Node.js test environment
 (global as any).WebSocket = WebSocket;
+(global as any).RTCPeerConnection = RTCPeerConnection;
 
 // Wrapper to simulate network impairment
 class ImpairedTransport {
@@ -89,13 +91,13 @@ describe('SmartClientTransport Network Impairment', () => {
 
     // Send ClientHello reliably for setup
     let retries = 0;
-    while (!clientId && retries < 10) {
+    while (!clientId && retries < 15) {
       impaired.transport.send(encodeMessage({ 
         type: MessageType.ClientHello, 
         clientId: "test_impaired_client", 
         version: "1.0.0" 
       }));
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
       retries++;
     }
     
