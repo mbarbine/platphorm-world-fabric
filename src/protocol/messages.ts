@@ -23,6 +23,22 @@ export interface ServerHello {
   connectionId: string;
 }
 
+export interface JoinSession {
+  type: MessageType.JoinSession;
+  sessionId: string;
+  token: string;
+}
+
+export interface JoinAccepted {
+  type: MessageType.JoinAccepted;
+  sessionId: string;
+}
+
+export interface JoinRejected {
+  type: MessageType.JoinRejected;
+  reason: string;
+}
+
 export interface InputFrame {
   type: MessageType.InputFrame;
   sequence: number;
@@ -74,10 +90,12 @@ export interface Pong {
 export type AnyMessage = 
   | ClientHello 
   | ServerHello 
+  | JoinSession
+  | JoinAccepted
+  | JoinRejected
   | InputFrame 
   | Snapshot
   | EntityDeltaMessage
   | SnapshotAck
   | Ping
   | Pong;
-

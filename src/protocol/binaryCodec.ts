@@ -170,6 +170,54 @@ function encodeStringInto(str: string, buf: Uint8Array, offset: number): number 
 }
 
 export function encodeMessage(msg: AnyMessage): Uint8Array {
+  if (msg.type === MessageType.ClientHello) {
+    outputScratch[0] = msg.type;
+    ensureScratchCapacity(1 + 2 + msg.clientId.length * 3 + 2 + msg.version.length * 3);
+    const writtenClientId = encodeStringInto(msg.clientId, outputScratch, 3);
+    writeUint16LE(outputScratch, 1, writtenClientId);
+    let offset = 3 + writtenClientId;
+    const writtenVersion = encodeStringInto(msg.version, outputScratch, offset + 2);
+    writeUint16LE(outputScratch, offset, writtenVersion);
+    offset += 2 + writtenVersion;
+    return outputScratch.slice(0, offset);
+  }
+
+  if (msg.type === MessageType.ServerHello) {
+    outputScratch[0] = msg.type;
+    ensureScratchCapacity(1 + 2 + msg.connectionId.length * 3);
+    const writtenConnectionId = encodeStringInto(msg.connectionId, outputScratch, 3);
+    writeUint16LE(outputScratch, 1, writtenConnectionId);
+    return outputScratch.slice(0, 3 + writtenConnectionId);
+  }
+
+  if (msg.type === MessageType.JoinSession) {
+    outputScratch[0] = msg.type;
+    ensureScratchCapacity(1 + 2 + msg.sessionId.length * 3 + 2 + msg.token.length * 3);
+    const writtenSessionId = encodeStringInto(msg.sessionId, outputScratch, 3);
+    writeUint16LE(outputScratch, 1, writtenSessionId);
+    let offset = 3 + writtenSessionId;
+    const writtenToken = encodeStringInto(msg.token, outputScratch, offset + 2);
+    writeUint16LE(outputScratch, offset, writtenToken);
+    offset += 2 + writtenToken;
+    return outputScratch.slice(0, offset);
+  }
+
+  if (msg.type === MessageType.JoinAccepted) {
+    outputScratch[0] = msg.type;
+    ensureScratchCapacity(1 + 2 + msg.sessionId.length * 3);
+    const writtenSessionId = encodeStringInto(msg.sessionId, outputScratch, 3);
+    writeUint16LE(outputScratch, 1, writtenSessionId);
+    return outputScratch.slice(0, 3 + writtenSessionId);
+  }
+
+  if (msg.type === MessageType.JoinRejected) {
+    outputScratch[0] = msg.type;
+    ensureScratchCapacity(1 + 2 + msg.reason.length * 3);
+    const writtenReason = encodeStringInto(msg.reason, outputScratch, 3);
+    writeUint16LE(outputScratch, 1, writtenReason);
+    return outputScratch.slice(0, 3 + writtenReason);
+  }
+
   if (msg.type === MessageType.InputFrame) {
     const buf = new Uint8Array(13);
     buf[0] = msg.type;
@@ -268,6 +316,59 @@ export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage 
   if (type === 0xFF) {
     const str = textDecoder.decode(buf.subarray(1));
     return JSON.parse(str);
+  }
+
+  if (type === MessageType.ClientHello) {
+    const clientIdLen = readUint16LE(buf, 1);
+    const clientId = decodeString(buf, 3, clientIdLen);
+    let offset = 3 + clientIdLen;
+    const versionLen = readUint16LE(buf, offset);
+    const version = decodeString(buf, offset + 2, versionLen);
+    return {
+      type: MessageType.ClientHello,
+      clientId,
+      version
+    };
+  }
+
+  if (type === MessageType.ServerHello) {
+    const connectionIdLen = readUint16LE(buf, 1);
+    const connectionId = decodeString(buf, 3, connectionIdLen);
+    return {
+      type: MessageType.ServerHello,
+      connectionId
+    };
+  }
+
+  if (type === MessageType.JoinSession) {
+    const sessionIdLen = readUint16LE(buf, 1);
+    const sessionId = decodeString(buf, 3, sessionIdLen);
+    let offset = 3 + sessionIdLen;
+    const tokenLen = readUint16LE(buf, offset);
+    const token = decodeString(buf, offset + 2, tokenLen);
+    return {
+      type: MessageType.JoinSession,
+      sessionId,
+      token
+    };
+  }
+
+  if (type === MessageType.JoinAccepted) {
+    const sessionIdLen = readUint16LE(buf, 1);
+    const sessionId = decodeString(buf, 3, sessionIdLen);
+    return {
+      type: MessageType.JoinAccepted,
+      sessionId
+    };
+  }
+
+  if (type === MessageType.JoinRejected) {
+    const reasonLen = readUint16LE(buf, 1);
+    const reason = decodeString(buf, 3, reasonLen);
+    return {
+      type: MessageType.JoinRejected,
+      reason
+    };
   }
 
   if (type === MessageType.InputFrame) {

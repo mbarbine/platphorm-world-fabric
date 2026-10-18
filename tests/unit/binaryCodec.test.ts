@@ -1,8 +1,78 @@
 import { describe, it, expect } from 'vitest';
 import { encodeMessage, decodeMessage } from '../../src/protocol/binaryCodec';
-import { MessageType, InputFrame, Ping, Pong, SnapshotAck, Snapshot, EntityDeltaMessage } from '../../src/protocol/messages';
+import {
+  MessageType,
+  ClientHello,
+  ServerHello,
+  JoinSession,
+  JoinAccepted,
+  JoinRejected,
+  InputFrame,
+  Ping,
+  Pong,
+  SnapshotAck,
+  Snapshot,
+  EntityDeltaMessage
+} from '../../src/protocol/messages';
 
 describe('binaryCodec', () => {
+  it('should encode and decode ClientHello', () => {
+    const original: ClientHello = {
+      type: MessageType.ClientHello,
+      clientId: 'client_abc123',
+      version: '1.2.3'
+    };
+    const encoded = encodeMessage(original);
+    expect(encoded[0]).toBe(MessageType.ClientHello);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(original);
+  });
+
+  it('should encode and decode ServerHello', () => {
+    const original: ServerHello = {
+      type: MessageType.ServerHello,
+      connectionId: 'conn_xyz789'
+    };
+    const encoded = encodeMessage(original);
+    expect(encoded[0]).toBe(MessageType.ServerHello);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(original);
+  });
+
+  it('should encode and decode JoinSession', () => {
+    const original: JoinSession = {
+      type: MessageType.JoinSession,
+      sessionId: 'sess_100',
+      token: 'tok_secret_key'
+    };
+    const encoded = encodeMessage(original);
+    expect(encoded[0]).toBe(MessageType.JoinSession);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(original);
+  });
+
+  it('should encode and decode JoinAccepted', () => {
+    const original: JoinAccepted = {
+      type: MessageType.JoinAccepted,
+      sessionId: 'sess_100'
+    };
+    const encoded = encodeMessage(original);
+    expect(encoded[0]).toBe(MessageType.JoinAccepted);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(original);
+  });
+
+  it('should encode and decode JoinRejected', () => {
+    const original: JoinRejected = {
+      type: MessageType.JoinRejected,
+      reason: 'Lobby full'
+    };
+    const encoded = encodeMessage(original);
+    expect(encoded[0]).toBe(MessageType.JoinRejected);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(original);
+  });
+
   it('should encode and decode InputFrame', () => {
     const original: InputFrame = {
       type: MessageType.InputFrame,
@@ -110,6 +180,7 @@ describe('binaryCodec', () => {
       flag: true
     };
     const encoded = encodeMessage(original as any);
+    expect(encoded[0]).toBe(0xFF); // Check fallback tag
     const decoded = decodeMessage(encoded);
     expect(decoded).toEqual(original);
   });

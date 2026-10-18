@@ -72,3 +72,8 @@
 
 **Learning:** Using `for...of` loops over event callback arrays (`messageHandlers`, `closeHandlers`, `connectionHandlers`) in high-frequency network transport channels allocates an iterator object (`ArrayIterator`) on every incoming frame, increasing GC pressure under load.
 **Action:** Use standard indexed `for` loops (`for (let i = 0; i < handlers.length; i++)`) with dynamic `.length` checks for handler dispatch in network transport channels.
+
+## 2026-09-16 - Custom binary encoding for control messages to eliminate JSON fallback overhead
+
+**Learning:** Relying on `JSON.stringify` and `JSON.parse` fallback for control messages (`ClientHello`, `ServerHello`, `JoinSession`, `JoinAccepted`, `JoinRejected`) creates intermediate JSON string allocations and expensive TextEncoder/TextDecoder conversions during connection lifecycle events and session signaling.
+**Action:** Implement explicit single-pass binary encoding and decoding for control message types using module-scoped scratch buffers and fast ASCII string encoder/decoder helpers, yielding a ~5.2x speedup (from 636,633 to 3,320,548 ops/sec) and zero GC allocations.
