@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { createLobby, joinLobby, getLobby } from './lobby.js';
 import { submitTicket, getTicket, getMatchmakingMetrics } from './matchmaker.js';
-import { getRegionalMetrics } from './regions.js';
+import { getRegionalMetrics, triggerZoneHandoff } from './regions.js';
 
 export const controlPlaneRouter = Router();
 
@@ -43,4 +43,14 @@ controlPlaneRouter.get('/matchmaking/metrics', (req, res) => {
 
 controlPlaneRouter.get('/regions', (req, res) => {
   res.json(getRegionalMetrics());
+});
+
+controlPlaneRouter.post('/zone-handoff', async (req, res) => {
+  const { entityId, sourceZone, destZone, entityState } = req.body;
+  if (!entityId || !sourceZone || !destZone) {
+    res.status(400).json({ error: 'entityId, sourceZone, and destZone are required' });
+    return;
+  }
+  const result = await triggerZoneHandoff(entityId, sourceZone, destZone, entityState);
+  res.json(result);
 });

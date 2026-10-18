@@ -1,3 +1,6 @@
+import { ZoneHandoffManager, Zone } from "../runtime/zone/ZoneHandoff.js";
+import { EntityState } from "../protocol/messages.js";
+
 export function getRegionalMetrics() {
   // Generate some synthetic regional metrics
   return [
@@ -30,4 +33,19 @@ export function getRegionalMetrics() {
       p95LatencyMs: 85 + Math.floor(Math.random() * 10),
     }
   ];
+}
+
+export async function triggerZoneHandoff(
+  entityId: string,
+  sourceZone: Zone,
+  destZone: Zone,
+  entityState?: EntityState
+): Promise<{ success: boolean; finalState: string }> {
+  const manager = new ZoneHandoffManager(entityId, sourceZone, destZone);
+  const stateToPass = entityState || { id: entityId, x: 0, y: 0 };
+  const success = await manager.executeHandoff(stateToPass);
+  return {
+    success,
+    finalState: manager.getState(),
+  };
 }

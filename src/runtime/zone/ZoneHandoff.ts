@@ -32,7 +32,7 @@ export class ZoneHandoffManager {
 
   async executeHandoff(entityState: EntityState): Promise<boolean> {
     try {
-      console.log(`[Handoff] Starting handoff for ${this.entityId} from ${this.sourceZone.id} to ${this.destZone.id}`);
+      console.log(`[Handoff] Starting handoff for ${this.entityId} (entityState: ${entityState.id}) from ${this.sourceZone.id} to ${this.destZone.id}`);
       
       // 1. Reserve
       this.state = "DESTINATION_RESERVED";
