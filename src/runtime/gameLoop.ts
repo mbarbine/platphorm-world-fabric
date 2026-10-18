@@ -18,11 +18,12 @@ const stateHistory = new Map<number, Map<string, EntityState>>();
 
 let serverTick = 0;
 const DISCONNECT_TIMEOUT_MS = 60000;
+const AUTH_TIMEOUT_MS = 5000;
 
 export function startRuntime(provider: TransportProvider) {
   provider.onConnection((channel) => {
     let connId: string | null = null;
-    let authTimeout = setTimeout(() => channel.close(), 5000);
+    let authTimeout = setTimeout(() => channel.close(), AUTH_TIMEOUT_MS);
 
     channel.onMessage((data) => {
       try {
