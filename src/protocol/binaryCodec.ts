@@ -1,8 +1,18 @@
-import { AnyMessage, MessageType, EntityState, EntityDeltaState } from './messages.js';
+import {
+  AnyMessage,
+  MessageType,
+  EntityState,
+  EntityDeltaState,
+  InputFrame,
+  Ping,
+  Pong,
+  SnapshotAck,
+  Snapshot,
+  EntityDeltaMessage,
+} from './messages.js';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
 
 /**
  * Bolt Optimization: Reusable module-scoped scratch buffer and typed array views for fast float/double
@@ -169,90 +179,85 @@ function encodeStringInto(str: string, buf: Uint8Array, offset: number): number 
   return textEncoder.encodeInto(str, buf.subarray(offset, offset + byteLen)).written;
 }
 
-export function encodeMessage(msg: AnyMessage): Uint8Array {
-  if (msg.type === MessageType.InputFrame) {
-    const buf = new Uint8Array(13);
-    buf[0] = msg.type;
-    writeUint32LE(buf, 1, msg.sequence);
-    writeFloat32LE(buf, 5, msg.inputX);
-    writeFloat32LE(buf, 9, msg.inputY);
-    return buf;
+function encodeInputFrame(msg: InputFrame): Uint8Array {
+  const buf = new Uint8Array(13);
+  buf[0] = msg.type;
+  writeUint32LE(buf, 1, msg.sequence);
+  writeFloat32LE(buf, 5, msg.inputX);
+  writeFloat32LE(buf, 9, msg.inputY);
+  return buf;
+}
+
+function encodePing(msg: Ping): Uint8Array {
+  const buf = new Uint8Array(9);
+  buf[0] = msg.type;
+  writeFloat64LE(buf, 1, msg.clientTime);
+  return buf;
+}
+
+function encodePong(msg: Pong): Uint8Array {
+  const buf = new Uint8Array(17);
+  buf[0] = msg.type;
+  writeFloat64LE(buf, 1, msg.clientTime);
+  writeFloat64LE(buf, 9, msg.serverTime);
+  return buf;
+}
+
+function encodeSnapshotAck(msg: SnapshotAck): Uint8Array {
+  const buf = new Uint8Array(5);
+  buf[0] = msg.type;
+  writeUint32LE(buf, 1, msg.serverTick);
+  return buf;
+}
+
+function encodeSnapshot(msg: Snapshot): Uint8Array {
+  const count = msg.entities.length;
+  outputScratch[0] = msg.type;
+  writeUint32LE(outputScratch, 1, msg.serverTick);
+  writeUint16LE(outputScratch, 5, count);
+
+  let offset = 7;
+  for (let i = 0; i < count; i++) {
+    const e = msg.entities[i];
+    ensureScratchCapacity(offset + 2 + e.id.length * 3 + 8);
+    const written = encodeStringInto(e.id, outputScratch, offset + 2);
+    writeUint16LE(outputScratch, offset, written);
+    offset += 2 + written;
+    writeFloat32LE(outputScratch, offset, e.x);
+    writeFloat32LE(outputScratch, offset + 4, e.y);
+    offset += 8;
   }
-  
-  if (msg.type === MessageType.Ping) {
-    const buf = new Uint8Array(9);
-    buf[0] = msg.type;
-    writeFloat64LE(buf, 1, msg.clientTime);
-    return buf;
+  return outputScratch.slice(0, offset);
+}
+
+function encodeEntityDelta(msg: EntityDeltaMessage): Uint8Array {
+  const count = msg.updates.length;
+  outputScratch[0] = msg.type;
+  writeUint32LE(outputScratch, 1, msg.serverTick);
+  writeUint32LE(outputScratch, 5, msg.baselineTick);
+  writeUint16LE(outputScratch, 9, count);
+
+  let offset = 11;
+  for (let i = 0; i < count; i++) {
+    const u = msg.updates[i];
+    ensureScratchCapacity(offset + 2 + u.id.length * 3 + 9);
+    const written = encodeStringInto(u.id, outputScratch, offset + 2);
+    writeUint16LE(outputScratch, offset, written);
+    offset += 2 + written;
+
+    let mask = 0;
+    if (u.x !== undefined) mask |= 1;
+    if (u.y !== undefined) mask |= 2;
+    outputScratch[offset] = mask;
+    offset += 1;
+
+    if (u.x !== undefined) { writeFloat32LE(outputScratch, offset, u.x); offset += 4; }
+    if (u.y !== undefined) { writeFloat32LE(outputScratch, offset, u.y); offset += 4; }
   }
+  return outputScratch.slice(0, offset);
+}
 
-  if (msg.type === MessageType.Pong) {
-    const buf = new Uint8Array(17);
-    buf[0] = msg.type;
-    writeFloat64LE(buf, 1, msg.clientTime);
-    writeFloat64LE(buf, 9, msg.serverTime);
-    return buf;
-  }
-
-  if (msg.type === MessageType.SnapshotAck) {
-    const buf = new Uint8Array(5);
-    buf[0] = msg.type;
-    writeUint32LE(buf, 1, msg.serverTick);
-    return buf;
-  }
-
-  if (msg.type === MessageType.Snapshot) {
-    const count = msg.entities.length;
-    outputScratch[0] = msg.type;
-    writeUint32LE(outputScratch, 1, msg.serverTick);
-    writeUint16LE(outputScratch, 5, count);
-    
-    let offset = 7;
-    for (let i = 0; i < count; i++) {
-      const e = msg.entities[i];
-      // Ensure buffer capacity for current entity (id length up to ~512 bytes + fields)
-      ensureScratchCapacity(offset + 2 + e.id.length * 3 + 8);
-      // Bolt Optimization: Single-pass encoding into module-scoped output buffer eliminates pre-pass string length calculations.
-      const written = encodeStringInto(e.id, outputScratch, offset + 2);
-      writeUint16LE(outputScratch, offset, written);
-      offset += 2 + written;
-      writeFloat32LE(outputScratch, offset, e.x);
-      writeFloat32LE(outputScratch, offset + 4, e.y);
-      offset += 8;
-    }
-    return outputScratch.slice(0, offset);
-  }
-
-  if (msg.type === MessageType.EntityDelta) {
-    const count = msg.updates.length;
-    outputScratch[0] = msg.type;
-    writeUint32LE(outputScratch, 1, msg.serverTick);
-    writeUint32LE(outputScratch, 5, msg.baselineTick);
-    writeUint16LE(outputScratch, 9, count);
-    
-    let offset = 11;
-    for (let i = 0; i < count; i++) {
-      const u = msg.updates[i];
-      // Ensure buffer capacity for current update (id length up to ~512 bytes + fields)
-      ensureScratchCapacity(offset + 2 + u.id.length * 3 + 9);
-      // Bolt Optimization: Single-pass encoding into module-scoped output buffer eliminates pre-pass string length calculations.
-      const written = encodeStringInto(u.id, outputScratch, offset + 2);
-      writeUint16LE(outputScratch, offset, written);
-      offset += 2 + written;
-
-      let mask = 0;
-      if (u.x !== undefined) mask |= 1;
-      if (u.y !== undefined) mask |= 2;
-      outputScratch[offset] = mask;
-      offset += 1;
-
-      if (u.x !== undefined) { writeFloat32LE(outputScratch, offset, u.x); offset += 4; }
-      if (u.y !== undefined) { writeFloat32LE(outputScratch, offset, u.y); offset += 4; }
-    }
-    return outputScratch.slice(0, offset);
-  }
-
-  // Fallback indicator
+function encodeJsonFallback(msg: AnyMessage): Uint8Array {
   const str = JSON.stringify(msg);
   const textBytes = textEncoder.encode(str);
   const buf = new Uint8Array(1 + textBytes.length);
@@ -261,105 +266,139 @@ export function encodeMessage(msg: AnyMessage): Uint8Array {
   return buf;
 }
 
+export function encodeMessage(msg: AnyMessage): Uint8Array {
+  switch (msg.type) {
+    case MessageType.InputFrame:
+      return encodeInputFrame(msg as InputFrame);
+    case MessageType.Ping:
+      return encodePing(msg as Ping);
+    case MessageType.Pong:
+      return encodePong(msg as Pong);
+    case MessageType.SnapshotAck:
+      return encodeSnapshotAck(msg as SnapshotAck);
+    case MessageType.Snapshot:
+      return encodeSnapshot(msg as Snapshot);
+    case MessageType.EntityDelta:
+      return encodeEntityDelta(msg as EntityDeltaMessage);
+    default:
+      return encodeJsonFallback(msg);
+  }
+}
+
+function decodeJsonFallback(buf: Uint8Array): AnyMessage {
+  const str = textDecoder.decode(buf.subarray(1));
+  return JSON.parse(str);
+}
+
+function decodeInputFrame(buf: Uint8Array): InputFrame {
+  return {
+    type: MessageType.InputFrame,
+    sequence: readUint32LE(buf, 1),
+    inputX: readFloat32LE(buf, 5),
+    inputY: readFloat32LE(buf, 9)
+  };
+}
+
+function decodePing(buf: Uint8Array): Ping {
+  return {
+    type: MessageType.Ping,
+    clientTime: readFloat64LE(buf, 1)
+  };
+}
+
+function decodePong(buf: Uint8Array): Pong {
+  return {
+    type: MessageType.Pong,
+    clientTime: readFloat64LE(buf, 1),
+    serverTime: readFloat64LE(buf, 9)
+  };
+}
+
+function decodeSnapshotAck(buf: Uint8Array): SnapshotAck {
+  return {
+    type: MessageType.SnapshotAck,
+    serverTick: readUint32LE(buf, 1)
+  };
+}
+
+function decodeSnapshot(buf: Uint8Array): Snapshot {
+  const serverTick = readUint32LE(buf, 1);
+  const count = readUint16LE(buf, 5);
+  const entities: EntityState[] = new Array(count);
+  let offset = 7;
+  for (let i = 0; i < count; i++) {
+    const idLen = readUint16LE(buf, offset);
+    offset += 2;
+    const id = decodeString(buf, offset, idLen);
+    offset += idLen;
+    const x = readFloat32LE(buf, offset);
+    const y = readFloat32LE(buf, offset + 4);
+    offset += 8;
+    entities[i] = { id, x, y };
+  }
+  return {
+    type: MessageType.Snapshot,
+    serverTick,
+    entities
+  };
+}
+
+function decodeEntityDelta(buf: Uint8Array): EntityDeltaMessage {
+  const serverTick = readUint32LE(buf, 1);
+  const baselineTick = readUint32LE(buf, 5);
+  const count = readUint16LE(buf, 9);
+  const updates: EntityDeltaState[] = new Array(count);
+  let offset = 11;
+  for (let i = 0; i < count; i++) {
+    const idLen = readUint16LE(buf, offset);
+    offset += 2;
+    const id = decodeString(buf, offset, idLen);
+    offset += idLen;
+
+    const mask = buf[offset];
+    offset += 1;
+
+    const update: EntityDeltaState = { id };
+    if ((mask & 1) !== 0) {
+      update.x = readFloat32LE(buf, offset);
+      offset += 4;
+    }
+    if ((mask & 2) !== 0) {
+      update.y = readFloat32LE(buf, offset);
+      offset += 4;
+    }
+    updates[i] = update;
+  }
+  return {
+    type: MessageType.EntityDelta,
+    serverTick,
+    baselineTick,
+    updates
+  };
+}
+
 export function decodeMessage(data: Uint8Array | ArrayBuffer | any): AnyMessage {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
   const type = buf[0];
 
   if (type === 0xFF) {
-    const str = textDecoder.decode(buf.subarray(1));
-    return JSON.parse(str);
+    return decodeJsonFallback(buf);
   }
 
-  if (type === MessageType.InputFrame) {
-    return {
-      type: MessageType.InputFrame,
-      sequence: readUint32LE(buf, 1),
-      inputX: readFloat32LE(buf, 5),
-      inputY: readFloat32LE(buf, 9)
-    };
+  switch (type) {
+    case MessageType.InputFrame:
+      return decodeInputFrame(buf);
+    case MessageType.Ping:
+      return decodePing(buf);
+    case MessageType.Pong:
+      return decodePong(buf);
+    case MessageType.SnapshotAck:
+      return decodeSnapshotAck(buf);
+    case MessageType.Snapshot:
+      return decodeSnapshot(buf);
+    case MessageType.EntityDelta:
+      return decodeEntityDelta(buf);
+    default:
+      throw new Error("Unknown message type: " + type);
   }
-  
-  if (type === MessageType.Ping) {
-    return {
-      type: MessageType.Ping,
-      clientTime: readFloat64LE(buf, 1)
-    };
-  }
-
-  if (type === MessageType.Pong) {
-    return {
-      type: MessageType.Pong,
-      clientTime: readFloat64LE(buf, 1),
-      serverTime: readFloat64LE(buf, 9)
-    };
-  }
-
-  if (type === MessageType.SnapshotAck) {
-    return {
-      type: MessageType.SnapshotAck,
-      serverTick: readUint32LE(buf, 1)
-    };
-  }
-
-  if (type === MessageType.Snapshot) {
-    const serverTick = readUint32LE(buf, 1);
-    const count = readUint16LE(buf, 5);
-    // Bolt Optimization: Pre-allocate array with fixed size 'count' to avoid dynamic resizing via push()
-    const entities: EntityState[] = new Array(count);
-    let offset = 7;
-    for (let i = 0; i < count; i++) {
-      const idLen = readUint16LE(buf, offset);
-      offset += 2;
-      // Bolt Optimization: Use fast ASCII string decoding helper
-      const id = decodeString(buf, offset, idLen);
-      offset += idLen;
-      const x = readFloat32LE(buf, offset);
-      const y = readFloat32LE(buf, offset + 4);
-      offset += 8;
-      entities[i] = { id, x, y };
-    }
-    return {
-      type: MessageType.Snapshot,
-      serverTick,
-      entities
-    };
-  }
-
-  if (type === MessageType.EntityDelta) {
-    const serverTick = readUint32LE(buf, 1);
-    const baselineTick = readUint32LE(buf, 5);
-    const count = readUint16LE(buf, 9);
-    // Bolt Optimization: Pre-allocate array with fixed size 'count' to avoid dynamic resizing via push()
-    const updates: EntityDeltaState[] = new Array(count);
-    let offset = 11;
-    for (let i = 0; i < count; i++) {
-      const idLen = readUint16LE(buf, offset);
-      offset += 2;
-      // Bolt Optimization: Use fast ASCII string decoding helper
-      const id = decodeString(buf, offset, idLen);
-      offset += idLen;
-      
-      const mask = buf[offset];
-      offset += 1;
-      
-      const update: EntityDeltaState = { id };
-      if ((mask & 1) !== 0) {
-        update.x = readFloat32LE(buf, offset);
-        offset += 4;
-      }
-      if ((mask & 2) !== 0) {
-        update.y = readFloat32LE(buf, offset);
-        offset += 4;
-      }
-      updates[i] = update;
-    }
-    return {
-      type: MessageType.EntityDelta,
-      serverTick,
-      baselineTick,
-      updates
-    };
-  }
-
-  throw new Error("Unknown message type: " + type);
 }
