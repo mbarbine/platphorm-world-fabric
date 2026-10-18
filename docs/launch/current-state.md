@@ -12,7 +12,7 @@ Phase: Fifth Work Cycle Complete - Platform Fabric Complete
 - **Lobby & Control Plane**: Implemented `/api/control-plane` to handle lobby creation, joining, and player directory.
 - **Matchmaking & Orchestration**: Implemented a matchmaking ticker system with asynchronous polling and synthetic session allocation delays. Client dynamically routes to assigned `workerUrl` upon match allocation.
 - **Interest Management**: Implemented rigorous Area of Interest (AoI) distance-based filtering inside `Snapshot` generation (Radius = 500).
-- **Cross-Domain Integration**: Added CORS support for `quake.platphormnews.com`, `trace.platphormnews.com`, `frwf.platphormnews.com`, `mcp.platphormews.com`, `platphormnews.com`, `games.platphormnews.com` and `paperboy.platphormnews.com`.
+- **Cross-Domain Integration**: Added CORS support for `quake.platphormnews.com`, `trace.platphormnews.com`, `frwf.platphormnews.com`, `mcp.platphormnews.com`, `platphormnews.com`, `games.platphormnews.com` and `paperboy.platphormnews.com`.
 - **Delta Replication**: Successfully implemented state history ring buffer and `EntityDelta` network messages based on client `SnapshotAck` baseline tracking.
 - **Durable Events & Recovery**: Implemented `EventStore` supporting transaction journaling for Tier 2 world events with integration tests.
 - **Multi-region & Zone Handoff**: Developed state machine models for `ZoneHandoffManager` covering ownership transitions and cross-zone entity migration proofs.

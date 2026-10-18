@@ -73,7 +73,6 @@ async function startServer() {
       'https://quake.platphormnews.com', 
       'https://frwf.platphormnews.com',
       'https://trace.platphormnews.com',
-      'https://mcp.platphormews.com',
       'https://mcp.platphormnews.com',
       'https://platphormnews.com',
       'https://games.platphormnews.com',
