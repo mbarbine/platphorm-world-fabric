@@ -18,34 +18,39 @@ export class WebSocketClientTransport implements ClientTransport {
   async start(): Promise<void> {
     this.status = 'Connecting';
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this.url);
-      this.ws.binaryType = 'arraybuffer';
-      
-      this.ws.onopen = () => {
-        this.status = 'WebSocket';
-        resolve();
-      };
-      
-      this.ws.onmessage = (event) => {
-        // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
-        for (let i = 0; i < this.messageHandlers.length; i++) {
-          this.messageHandlers[i](event.data);
-        }
-      };
+      try {
+        this.ws = new WebSocket(this.url);
+        this.ws.binaryType = 'arraybuffer';
 
-      this.ws.onclose = () => {
-        this.status = 'Disconnected';
-        for (let i = 0; i < this.closeHandlers.length; i++) {
-          this.closeHandlers[i]();
-        }
-      };
-      
-      this.ws.onerror = (err) => {
-        if (this.status === 'Connecting') {
-          this.status = 'Failed';
-          reject(err);
-        }
-      };
+        this.ws.onopen = () => {
+          this.status = 'WebSocket';
+          resolve();
+        };
+
+        this.ws.onmessage = (event) => {
+          // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
+          for (let i = 0; i < this.messageHandlers.length; i++) {
+            this.messageHandlers[i](event.data);
+          }
+        };
+
+        this.ws.onclose = () => {
+          this.status = 'Disconnected';
+          for (let i = 0; i < this.closeHandlers.length; i++) {
+            this.closeHandlers[i]();
+          }
+        };
+
+        this.ws.onerror = (err) => {
+          if (this.status === 'Connecting') {
+            this.status = 'Failed';
+            reject(err);
+          }
+        };
+      } catch (err) {
+        this.status = 'Failed';
+        reject(err);
+      }
     });
   }
 
@@ -64,7 +69,11 @@ export class WebSocketClientTransport implements ClientTransport {
   }
 
   close(): void {
-    if (this.ws) this.ws.close();
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch (_) {}
+    }
   }
 
   getStatus(): "Connecting" | "WebRTC" | "WebSocket" | "Disconnected" | "Failed" {
@@ -86,78 +95,105 @@ export class WebRTCClientTransport implements ClientTransport {
   async start(): Promise<void> {
     this.status = 'Connecting';
     return new Promise((resolve, reject) => {
-      this.signalingWs = new WebSocket(this.signalingUrl);
-      
-      const fail = (err: any) => {
+      try {
+        this.signalingWs = new WebSocket(this.signalingUrl);
+
+        const fail = (err: any) => {
+          this.status = 'Failed';
+          if (this.signalingWs) {
+            try { this.signalingWs.close(); } catch (_) {}
+          }
+          if (this.peerConn) {
+            try { this.peerConn.close(); } catch (_) {}
+          }
+          reject(err);
+        };
+
+        this.signalingWs.onerror = fail;
+
+        this.signalingWs.onopen = async () => {
+          try {
+            this.peerConn = new RTCPeerConnection({
+              iceServers: [] // Rely on host candidates for local dev / testing
+            });
+
+            this.dataChannel = this.peerConn.createDataChannel("game");
+            this.dataChannel.onerror = (err) => {
+              if (this.status === 'Connecting') {
+                fail(err);
+              }
+            };
+            this.dataChannel.onopen = () => {
+              this.status = 'WebRTC';
+              resolve();
+            };
+            this.dataChannel.onmessage = (event) => {
+              // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
+              for (let i = 0; i < this.messageHandlers.length; i++) {
+                this.messageHandlers[i](event.data);
+              }
+            };
+            this.dataChannel.onclose = () => {
+              this.status = 'Disconnected';
+              for (let i = 0; i < this.closeHandlers.length; i++) {
+                this.closeHandlers[i]();
+              }
+            };
+
+            this.peerConn.onicecandidate = (event) => {
+              if (event.candidate && this.signalingWs && this.signalingWs.readyState === WebSocket.OPEN) {
+                try {
+                  const candObj = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate;
+                  this.signalingWs.send(JSON.stringify({
+                    type: 'candidate',
+                    candidate: candObj
+                  }));
+                } catch (e) {
+                  console.warn("Ice candidate send error:", e);
+                }
+              }
+            };
+
+            let hasRemoteDescription = false;
+            const pendingCandidates: any[] = [];
+            this.signalingWs!.onmessage = async (event) => {
+              try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'answer' && this.peerConn) {
+                  await this.peerConn.setRemoteDescription(msg);
+                  hasRemoteDescription = true;
+                  for (let i = 0; i < pendingCandidates.length; i++) {
+                    await this.peerConn.addIceCandidate(pendingCandidates[i]).catch(e => console.warn("Ice candidate error:", e));
+                  }
+                  pendingCandidates.length = 0;
+                } else if (msg.type === 'candidate' && this.peerConn) {
+                  if (hasRemoteDescription) {
+                    await this.peerConn.addIceCandidate(msg.candidate).catch(e => console.warn("Ice candidate error:", e));
+                  } else {
+                    pendingCandidates.push(msg.candidate);
+                  }
+                }
+              } catch (e) {
+                if (this.status === 'Connecting') {
+                  fail(e);
+                } else {
+                  console.warn("Signaling message error:", e);
+                }
+              }
+            };
+
+            const offer = await this.peerConn.createOffer();
+            await this.peerConn.setLocalDescription(offer);
+
+            this.signalingWs!.send(JSON.stringify(offer));
+          } catch (e) {
+            fail(e);
+          }
+        };
+      } catch (e) {
         this.status = 'Failed';
-        if (this.signalingWs) this.signalingWs.close();
-        if (this.peerConn) this.peerConn.close();
-        reject(err);
-      };
-
-      this.signalingWs.onerror = fail;
-      
-      this.signalingWs.onopen = async () => {
-        try {
-          this.peerConn = new RTCPeerConnection({
-            iceServers: [] // Rely on host candidates for local dev / testing
-          });
-          
-          this.dataChannel = this.peerConn.createDataChannel("game");
-          this.dataChannel.onopen = () => {
-            this.status = 'WebRTC';
-            resolve();
-          };
-          this.dataChannel.onmessage = (event) => {
-            // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
-            for (let i = 0; i < this.messageHandlers.length; i++) {
-              this.messageHandlers[i](event.data);
-            }
-          };
-          this.dataChannel.onclose = () => {
-            this.status = 'Disconnected';
-            for (let i = 0; i < this.closeHandlers.length; i++) {
-              this.closeHandlers[i]();
-            }
-          };
-          
-          this.peerConn.onicecandidate = (event) => {
-            if (event.candidate && this.signalingWs && this.signalingWs.readyState === WebSocket.OPEN) {
-              this.signalingWs.send(JSON.stringify({
-                type: 'candidate',
-                candidate: event.candidate.toJSON()
-              }));
-            }
-          };
-          
-          let hasRemoteDescription = false;
-          const pendingCandidates: any[] = [];
-          this.signalingWs!.onmessage = async (event) => {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'answer' && this.peerConn) {
-              await this.peerConn.setRemoteDescription(msg);
-              hasRemoteDescription = true;
-              for (const candidate of pendingCandidates) {
-                await this.peerConn.addIceCandidate(candidate).catch(e => console.warn("Ice candidate error:", e));
-              }
-              pendingCandidates.length = 0;
-            } else if (msg.type === 'candidate' && this.peerConn) {
-              if (hasRemoteDescription) {
-                await this.peerConn.addIceCandidate(msg.candidate).catch(e => console.warn("Ice candidate error:", e));
-              } else {
-                pendingCandidates.push(msg.candidate);
-              }
-            }
-          };
-
-          const offer = await this.peerConn.createOffer();
-          await this.peerConn.setLocalDescription(offer);
-          
-          this.signalingWs!.send(JSON.stringify(offer));
-        } catch (e) {
-          fail(e);
-        }
-      };
+        reject(e);
+      }
     });
   }
 
@@ -180,9 +216,15 @@ export class WebRTCClientTransport implements ClientTransport {
   }
 
   close(): void {
-    if (this.dataChannel) this.dataChannel.close();
-    if (this.peerConn) this.peerConn.close();
-    if (this.signalingWs) this.signalingWs.close();
+    if (this.dataChannel) {
+      try { this.dataChannel.close(); } catch (_) {}
+    }
+    if (this.peerConn) {
+      try { this.peerConn.close(); } catch (_) {}
+    }
+    if (this.signalingWs) {
+      try { this.signalingWs.close(); } catch (_) {}
+    }
   }
 
   getStatus(): "Connecting" | "WebRTC" | "WebSocket" | "Disconnected" | "Failed" {
@@ -210,7 +252,9 @@ export class SmartClientTransport implements ClientTransport {
       console.log("Connected via WebRTC Data Channel");
     } catch (e) {
       console.warn("WebRTC failed, falling back to WebSocket", e);
-      rtc.close();
+      try {
+        rtc.close();
+      } catch (_) {}
       const ws = new WebSocketClientTransport(`${wsUrl}/ws`);
       await ws.start();
       this.activeTransport = ws;
