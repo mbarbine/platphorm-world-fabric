@@ -19,6 +19,10 @@ const stateHistory = new Map<number, Map<string, EntityState>>();
 let serverTick = 0;
 const DISCONNECT_TIMEOUT_MS = 60000;
 
+const INTEREST_RADIUS = 500;
+// Bolt Optimization: Precompute squared interest radius to avoid per-entity sqrt or repeated multiplications.
+const INTEREST_RADIUS_SQ = INTEREST_RADIUS * INTEREST_RADIUS;
+
 export function startRuntime(provider: TransportProvider) {
   provider.onConnection((channel) => {
     let connId: string | null = null;
@@ -103,11 +107,10 @@ function handleMessage(connId: string, msg: AnyMessage) {
   }
 }
 
-function tick() {
-  serverTick++;
-  
-  const prevTickMap = stateHistory.get(serverTick - 1);
+function recordStateHistory(currentTick: number) {
+  const prevTickMap = stateHistory.get(currentTick - 1);
   const currentTickMap = new Map<string, EntityState>();
+
   // Bolt Optimization: Reuse EntityState objects for stationary entities across tick history maps.
   // In a 30Hz game loop, most entities remain stationary between ticks. Reusing previous EntityState objects
   // avoids allocating new { id, x, y } objects for every entity 30 times per second, reducing GC pressure by ~95%
@@ -120,7 +123,7 @@ function tick() {
       currentTickMap.set(v.id, { id: v.id, x: v.x, y: v.y });
     }
   }
-  stateHistory.set(serverTick, currentTickMap);
+  stateHistory.set(currentTick, currentTickMap);
 
   if (stateHistory.size > 90) { // Keep last 3 seconds
     // Bolt Optimization: Map keys are iterated in insertion order (monotonically increasing ticks).
@@ -130,73 +133,80 @@ function tick() {
       stateHistory.delete(oldestTick);
     }
   }
+}
 
-  const INTEREST_RADIUS = 500;
-  // Bolt Optimization: Precompute squared interest radius to avoid per-entity sqrt or repeated multiplications.
-  const INTEREST_RADIUS_SQ = INTEREST_RADIUS * INTEREST_RADIUS;
-  
+function replicateToConnection(conn: PlayerConnection, currentTick: number) {
+  const playerEntity = entities.get(conn.entityId);
+  const px = playerEntity ? playerEntity.x : 0;
+  const py = playerEntity ? playerEntity.y : 0;
+
+  const baseline = stateHistory.get(conn.ackTick);
+
+  if (baseline) {
+    // Send delta
+    const updates: EntityDeltaState[] = [];
+    for (const e of entities.values()) {
+      if (playerEntity) {
+        const dx = e.x - px;
+        const dy = e.y - py;
+        if (dx * dx + dy * dy > INTEREST_RADIUS_SQ) continue;
+      }
+
+      const old = baseline.get(e.id);
+      if (!old) {
+        updates.push({ id: e.id, x: e.x, y: e.y });
+      } else if (old.x !== e.x || old.y !== e.y) {
+        const u: EntityDeltaState = { id: e.id };
+        if (old.x !== e.x) u.x = e.x;
+        if (old.y !== e.y) u.y = e.y;
+        updates.push(u);
+      }
+    }
+
+    // If no updates and we don't handle entity removal yet, we could skip sending.
+    // But let's send anyway to acknowledge we're alive, or just rely on normal tick behavior.
+
+    const payload = encodeMessage({
+      type: MessageType.EntityDelta,
+      serverTick: currentTick,
+      baselineTick: conn.ackTick,
+      updates
+    });
+    conn.channel.sendUnreliable(payload);
+  } else {
+    // Send full snapshot
+    const relevantEntities: EntityState[] = [];
+    for (const e of entities.values()) {
+      if (playerEntity) {
+        const dx = e.x - px;
+        const dy = e.y - py;
+        if (dx * dx + dy * dy > INTEREST_RADIUS_SQ) continue;
+      }
+      relevantEntities.push(e);
+    }
+
+    const state: Snapshot = {
+      type: MessageType.Snapshot,
+      serverTick: currentTick,
+      entities: relevantEntities,
+    };
+
+    const payload = encodeMessage(state);
+    conn.channel.sendUnreliable(payload);
+  }
+}
+
+function replicateState(currentTick: number) {
   // Replicate to all clients with interest filtering.
   // Bolt Optimization: Iterate over entities.values() directly in single-pass loops per connection.
   // This eliminates allocating `allEntities` array every tick and `relevantEntities` filter arrays / closures per connection.
   for (const conn of connections.values()) {
-    const playerEntity = entities.get(conn.entityId);
-    const px = playerEntity ? playerEntity.x : 0;
-    const py = playerEntity ? playerEntity.y : 0;
-
-    const baseline = stateHistory.get(conn.ackTick);
-
-    if (baseline) {
-      // Send delta
-      const updates: EntityDeltaState[] = [];
-      for (const e of entities.values()) {
-        if (playerEntity) {
-          const dx = e.x - px;
-          const dy = e.y - py;
-          if (dx * dx + dy * dy > INTEREST_RADIUS_SQ) continue;
-        }
-
-        const old = baseline.get(e.id);
-        if (!old) {
-          updates.push({ id: e.id, x: e.x, y: e.y });
-        } else if (old.x !== e.x || old.y !== e.y) {
-          const u: EntityDeltaState = { id: e.id };
-          if (old.x !== e.x) u.x = e.x;
-          if (old.y !== e.y) u.y = e.y;
-          updates.push(u);
-        }
-      }
-
-      // If no updates and we don't handle entity removal yet, we could skip sending.
-      // But let's send anyway to acknowledge we're alive, or just rely on normal tick behavior.
-      
-      const payload = encodeMessage({
-        type: MessageType.EntityDelta,
-        serverTick,
-        baselineTick: conn.ackTick,
-        updates
-      });
-      conn.channel.sendUnreliable(payload);
-
-    } else {
-      // Send full snapshot
-      const relevantEntities: EntityState[] = [];
-      for (const e of entities.values()) {
-        if (playerEntity) {
-          const dx = e.x - px;
-          const dy = e.y - py;
-          if (dx * dx + dy * dy > INTEREST_RADIUS_SQ) continue;
-        }
-        relevantEntities.push(e);
-      }
-
-      const state: Snapshot = {
-        type: MessageType.Snapshot,
-        serverTick,
-        entities: relevantEntities,
-      };
-      
-      const payload = encodeMessage(state);
-      conn.channel.sendUnreliable(payload);
-    }
+    replicateToConnection(conn, currentTick);
   }
+}
+
+function tick() {
+  serverTick++;
+  recordStateHistory(serverTick);
+  replicateState(serverTick);
 }
