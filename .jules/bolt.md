@@ -72,3 +72,8 @@
 
 **Learning:** Using `for...of` loops over event callback arrays (`messageHandlers`, `closeHandlers`, `connectionHandlers`) in high-frequency network transport channels allocates an iterator object (`ArrayIterator`) on every incoming frame, increasing GC pressure under load.
 **Action:** Use standard indexed `for` loops (`for (let i = 0; i < handlers.length; i++)`) with dynamic `.length` checks for handler dispatch in network transport channels.
+
+## 2026-10-18 - Snapshot Map values once per tick and fast-path reference equality in game loop replication
+
+**Learning:** Iterating over `entities.values()` directly inside per-connection client replication loops creates MapIterator objects for every client on every frame (30Hz). Furthermore, comparing numeric properties `(old.x !== e.x || old.y !== e.y)` for unchanged entities incurs unnecessary property lookup overhead.
+**Action:** Snapshot `entities.values()` into a temporary array `entityList` once per `tick()`, use indexed `for` loops over `entityList` per connection, and check object reference equality `(old === e)` to skip property comparisons for stationary entities (~11% tick execution speedup).

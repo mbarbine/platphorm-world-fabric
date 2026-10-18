@@ -135,9 +135,13 @@ function tick() {
   // Bolt Optimization: Precompute squared interest radius to avoid per-entity sqrt or repeated multiplications.
   const INTEREST_RADIUS_SQ = INTEREST_RADIUS * INTEREST_RADIUS;
   
+  // Bolt Optimization: Snapshot entities.values() into an array once per tick.
+  // Using an indexed loop over entityList avoids allocating MapIterator objects per connected client
+  // and enables fast reference equality checks (old === e) for stationary entities.
+  const entityList = Array.from(entities.values());
+  const entityCount = entityList.length;
+
   // Replicate to all clients with interest filtering.
-  // Bolt Optimization: Iterate over entities.values() directly in single-pass loops per connection.
-  // This eliminates allocating `allEntities` array every tick and `relevantEntities` filter arrays / closures per connection.
   for (const conn of connections.values()) {
     const playerEntity = entities.get(conn.entityId);
     const px = playerEntity ? playerEntity.x : 0;
@@ -148,7 +152,8 @@ function tick() {
     if (baseline) {
       // Send delta
       const updates: EntityDeltaState[] = [];
-      for (const e of entities.values()) {
+      for (let i = 0; i < entityCount; i++) {
+        const e = entityList[i];
         if (playerEntity) {
           const dx = e.x - px;
           const dy = e.y - py;
@@ -158,6 +163,9 @@ function tick() {
         const old = baseline.get(e.id);
         if (!old) {
           updates.push({ id: e.id, x: e.x, y: e.y });
+        } else if (old === e) {
+          // Object reference match: position unchanged, skip field comparisons
+          continue;
         } else if (old.x !== e.x || old.y !== e.y) {
           const u: EntityDeltaState = { id: e.id };
           if (old.x !== e.x) u.x = e.x;
@@ -180,7 +188,8 @@ function tick() {
     } else {
       // Send full snapshot
       const relevantEntities: EntityState[] = [];
-      for (const e of entities.values()) {
+      for (let i = 0; i < entityCount; i++) {
+        const e = entityList[i];
         if (playerEntity) {
           const dx = e.x - px;
           const dy = e.y - py;
