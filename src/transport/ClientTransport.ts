@@ -104,51 +104,11 @@ export class WebRTCClientTransport implements ClientTransport {
           });
           
           this.dataChannel = this.peerConn.createDataChannel("game");
-          this.dataChannel.onopen = () => {
-            this.status = 'WebRTC';
-            resolve();
-          };
-          this.dataChannel.onmessage = (event) => {
-            // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
-            for (let i = 0; i < this.messageHandlers.length; i++) {
-              this.messageHandlers[i](event.data);
-            }
-          };
-          this.dataChannel.onclose = () => {
-            this.status = 'Disconnected';
-            for (let i = 0; i < this.closeHandlers.length; i++) {
-              this.closeHandlers[i]();
-            }
-          };
+          this.setupDataChannel(resolve);
+          this.setupIceCandidateHandling();
           
-          this.peerConn.onicecandidate = (event) => {
-            if (event.candidate && this.signalingWs && this.signalingWs.readyState === WebSocket.OPEN) {
-              this.signalingWs.send(JSON.stringify({
-                type: 'candidate',
-                candidate: event.candidate.toJSON()
-              }));
-            }
-          };
-          
-          let hasRemoteDescription = false;
           const pendingCandidates: any[] = [];
-          this.signalingWs!.onmessage = async (event) => {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'answer' && this.peerConn) {
-              await this.peerConn.setRemoteDescription(msg);
-              hasRemoteDescription = true;
-              for (const candidate of pendingCandidates) {
-                await this.peerConn.addIceCandidate(candidate).catch(e => console.warn("Ice candidate error:", e));
-              }
-              pendingCandidates.length = 0;
-            } else if (msg.type === 'candidate' && this.peerConn) {
-              if (hasRemoteDescription) {
-                await this.peerConn.addIceCandidate(msg.candidate).catch(e => console.warn("Ice candidate error:", e));
-              } else {
-                pendingCandidates.push(msg.candidate);
-              }
-            }
-          };
+          this.setupSignalingMessageHandling(pendingCandidates);
 
           const offer = await this.peerConn.createOffer();
           await this.peerConn.setLocalDescription(offer);
@@ -159,6 +119,66 @@ export class WebRTCClientTransport implements ClientTransport {
         }
       };
     });
+  }
+
+  private setupDataChannel(onOpenResolve: () => void): void {
+    if (!this.dataChannel) return;
+
+    this.dataChannel.onopen = () => {
+      this.status = 'WebRTC';
+      onOpenResolve();
+    };
+
+    this.dataChannel.onmessage = (event) => {
+      // Bolt Optimization: Standard indexed loop avoids iterator object allocation per incoming message
+      for (let i = 0; i < this.messageHandlers.length; i++) {
+        this.messageHandlers[i](event.data);
+      }
+    };
+
+    this.dataChannel.onclose = () => {
+      this.status = 'Disconnected';
+      for (let i = 0; i < this.closeHandlers.length; i++) {
+        this.closeHandlers[i]();
+      }
+    };
+  }
+
+  private setupIceCandidateHandling(): void {
+    if (!this.peerConn) return;
+
+    this.peerConn.onicecandidate = (event) => {
+      if (event.candidate && this.signalingWs && this.signalingWs.readyState === WebSocket.OPEN) {
+        this.signalingWs.send(JSON.stringify({
+          type: 'candidate',
+          candidate: event.candidate.toJSON()
+        }));
+      }
+    };
+  }
+
+  private setupSignalingMessageHandling(pendingCandidates: any[]): void {
+    if (!this.signalingWs) return;
+
+    let hasRemoteDescription = false;
+
+    this.signalingWs.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'answer' && this.peerConn) {
+        await this.peerConn.setRemoteDescription(msg);
+        hasRemoteDescription = true;
+        for (const candidate of pendingCandidates) {
+          await this.peerConn.addIceCandidate(candidate).catch(e => console.warn("Ice candidate error:", e));
+        }
+        pendingCandidates.length = 0;
+      } else if (msg.type === 'candidate' && this.peerConn) {
+        if (hasRemoteDescription) {
+          await this.peerConn.addIceCandidate(msg.candidate).catch(e => console.warn("Ice candidate error:", e));
+        } else {
+          pendingCandidates.push(msg.candidate);
+        }
+      }
+    };
   }
 
   send(data: string | Uint8Array): void {
