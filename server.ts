@@ -91,7 +91,6 @@ async function startServer() {
     }
     
     // Process integration data here
-    console.log("Received integration payload:", req.body);
     res.json({ status: "success", received: true });
   });
 
